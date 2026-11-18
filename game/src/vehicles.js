@@ -170,8 +170,10 @@ export function driveVehicle(car, input, dt, colliders, onCrash) {
   car.speed -= car.speed * CONFIG.carDrag * dt;
   car.speed = Math.max(-CONFIG.carMaxReverse, Math.min(CONFIG.carMaxSpeed, car.speed));
 
+  // Steering: heading grows turning left, and flips in reverse so the car
+  // always turns the way the wheel points.
   const steerAmount = steering * CONFIG.carTurnRate * dt * Math.min(1, Math.abs(car.speed) / 8 + 0.25);
-  car.heading += steerAmount * Math.sign(car.speed || 1);
+  car.heading -= steerAmount * Math.sign(car.speed || 1);
 
   const nextX = car.x + car.forwardX * car.speed * dt;
   const nextZ = car.z + car.forwardZ * car.speed * dt;
