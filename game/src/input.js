@@ -53,7 +53,10 @@ export class Input {
 
   lockPointer() {
     try {
-      this.canvas.requestPointerLock();
+      const result = this.canvas.requestPointerLock();
+      if (result && typeof result.catch === 'function') {
+        result.catch(() => { /* pointer lock needs a user gesture; camera still works */ });
+      }
     } catch (e) { /* pointer lock unavailable */ }
   }
 
