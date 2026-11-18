@@ -1,3 +1,4 @@
+// Sunshine City entrypoint note (Round 3 rebuild): this program hands in the
 // A working gta6-01 entry (Node 22, standard library only): the game is this directory's
 // game/ folder, plain static files a desktop browser loads offline (game/index.html and its ES
 // modules, no library and no network request), and the program hands it in. It copies game/ and
@@ -12,10 +13,6 @@
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
-// Sunshine City (authored for gta6-01): an original open-world crime game — procedural
-// coastal city, drivable cars, wanted stars, police chases, 3 story missions, pistol
-// combat, WebAudio synth sound, localStorage saves, deterministic ?shot= scenes.
-// The game itself lives in game/ (three.js, vendored under game/vendor/).
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';

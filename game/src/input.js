@@ -1,63 +1,128 @@
-// Keyboard + mouse input. Drag to orbit the camera; click shoots (handled by combat).
-export const ACTION_PAUSE = 1;
-export const ACTION_INTERACT = 2;
-export const ACTION_MUTE = 4;
+// Sunshine City — keyboard + mouse input.
+// WASD move/drive, Shift run, E steal/enter car, F exit car,
+// Space brake, mouse orbit camera, click shoot, P pause, M mute.
 
-export function createInput(canvas) {
-  const keys = new Set();
-  let yawDelta = 0;
-  let pitchDelta = 0;
-  let dragging = false;
-  let lastX = 0;
-  let lastY = 0;
-  let clicked = false;
-  let actions = 0;
+export class Input {
+  constructor(canvas) {
+    this.keys = new Set();
+    this.mouseDX = 0;
+    this.mouseDY = 0;
+    this.mouseDown = false;
+    this.shootQueued = false;
+    this.actionQueued = false;
+    this.exitQueued = false;
+    this.pauseQueued = false;
+    this.muteQueued = false;
+    this.pointerLocked = false;
+    this.canvas = canvas;
 
-  function keyName(e) { return e.key.length === 1 ? e.key.toLowerCase() : e.key; }
+    window.addEventListener('keydown', (event) => {
+      if (event.repeat) return;
+      this.keys.add(event.code);
+      if (event.code === 'KeyE') this.actionQueued = true;
+      if (event.code === 'KeyF') this.exitQueued = true;
+      if (event.code === 'KeyP' || event.code === 'Escape') this.pauseQueued = true;
+      if (event.code === 'KeyM') this.muteQueued = true;
+      if (event.code === 'Space') event.preventDefault();
+    });
+    window.addEventListener('keyup', (event) => {
+      this.keys.delete(event.code);
+    });
+    window.addEventListener('blur', () => {
+      this.keys.clear();
+    });
 
-  window.addEventListener('keydown', (e) => {
-    const k = keyName(e);
-    if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(k)) e.preventDefault();
-    if (!e.repeat) {
-      if (k === 'Escape' || k === 'p' || k === 'P') actions |= ACTION_PAUSE;
-      if (k === 'e' || k === 'E') actions |= ACTION_INTERACT;
-      if (k === 'm' || k === 'M') actions |= ACTION_MUTE;
+    canvas.addEventListener('mousedown', (event) => {
+      if (event.button === 0) {
+        this.mouseDown = true;
+        this.shootQueued = true;
+      }
+    });
+    window.addEventListener('mouseup', (event) => {
+      if (event.button === 0) this.mouseDown = false;
+    });
+    window.addEventListener('mousemove', (event) => {
+      if (!this.pointerLocked) return;
+      this.mouseDX += event.movementX || 0;
+      this.mouseDY += event.movementY || 0;
+    });
+    document.addEventListener('pointerlockchange', () => {
+      this.pointerLocked = document.pointerLockElement === canvas;
+    });
+  }
+
+  lockPointer() {
+    try {
+      this.canvas.requestPointerLock();
+    } catch (e) { /* pointer lock unavailable */ }
+  }
+
+  unlockPointer() {
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
+
+  down(code) {
+    return this.keys.has(code);
+  }
+
+  moveVector() {
+    let x = 0;
+    let z = 0;
+    if (this.down('KeyW') || this.down('ArrowUp')) z -= 1;
+    if (this.down('KeyS') || this.down('ArrowDown')) z += 1;
+    if (this.down('KeyA') || this.down('ArrowLeft')) x -= 1;
+    if (this.down('KeyD') || this.down('ArrowRight')) x += 1;
+    const len = Math.hypot(x, z);
+    if (len > 0) {
+      x /= len;
+      z /= len;
     }
-    keys.add(k);
-  });
-  window.addEventListener('keyup', (e) => keys.delete(keyName(e)));
-  window.addEventListener('blur', () => keys.clear());
+    return { x, z };
+  }
 
-  canvas.addEventListener('mousedown', (e) => {
-    dragging = true; lastX = e.clientX; lastY = e.clientY;
-    if (e.button === 0) clicked = true;
-  });
-  window.addEventListener('mouseup', () => { dragging = false; });
-  window.addEventListener('mousemove', (e) => {
-    if (!dragging) return;
-    yawDelta += e.clientX - lastX;
-    pitchDelta += e.clientY - lastY;
-    lastX = e.clientX; lastY = e.clientY;
-  });
+  get running() {
+    return this.down('ShiftLeft') || this.down('ShiftRight');
+  }
 
-  return {
-    held(k) { return keys.has(k); },
-    axis() {
-      // x: strafe/steer, z: forward/back. WASD + arrows.
-      let x = 0; let z = 0;
-      if (keys.has('a') || keys.has('ArrowLeft')) x -= 1;
-      if (keys.has('d') || keys.has('ArrowRight')) x += 1;
-      if (keys.has('w') || keys.has('ArrowUp')) z += 1;
-      if (keys.has('s') || keys.has('ArrowDown')) z -= 1;
-      return { x, z };
-    },
-    running() { return keys.has('Shift'); },
-    takeLook() {
-      const d = { yaw: yawDelta * 0.0045, pitch: pitchDelta * 0.0045 };
-      yawDelta = 0; pitchDelta = 0;
-      return d;
-    },
-    takeClick() { const c = clicked; clicked = false; return c; },
-    takeActions() { const a = actions; actions = 0; return a; },
-  };
+  get braking() {
+    return this.down('Space');
+  }
+
+  consumeMouseDelta() {
+    const dx = this.mouseDX;
+    const dy = this.mouseDY;
+    this.mouseDX = 0;
+    this.mouseDY = 0;
+    return { dx, dy };
+  }
+
+  consumeShoot() {
+    const value = this.shootQueued;
+    this.shootQueued = false;
+    return value;
+  }
+
+  consumeAction() {
+    const value = this.actionQueued;
+    this.actionQueued = false;
+    return value;
+  }
+
+  consumeExit() {
+    const value = this.exitQueued;
+    this.exitQueued = false;
+    return value;
+  }
+
+  consumePause() {
+    const value = this.pauseQueued;
+    this.pauseQueued = false;
+    return value;
+  }
+
+  consumeMute() {
+    const value = this.muteQueued;
+    this.muteQueued = false;
+    return value;
+  }
 }

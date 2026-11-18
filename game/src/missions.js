@@ -1,175 +1,217 @@
-// The three story missions for Marco Reyes. Each has stages, a beacon marker in
-// the world, a cash reward, and a save entry when finished.
+// Sunshine City — the three-mission story arc for Marco and Lena Cruz.
+// Missions chain automatically: steal a car, run a timed package delivery,
+// then lose a three-star wanted level. Each pays cash on completion.
+
 import * as THREE from 'three';
+import { CONFIG, MISSION_DEFS } from './config.js';
+import { distance2D } from './random.js';
 
-export const MISSIONS = [
-  {
-    id: 'first-wheels',
-    title: 'MISSION 1 — FIRST WHEELS',
-    reward: 500,
-    intro: 'Lena: "No wheels, no job. Jack a car and bring it to my garage."',
-  },
-  {
-    id: 'package-run',
-    title: 'MISSION 2 — PACKAGE RUN',
-    reward: 800,
-    intro: 'Lena: "Package at the north docks. Deliver it across town — 90 seconds."',
-  },
-  {
-    id: 'lose-the-heat',
-    title: 'MISSION 3 — LOSE THE HEAT',
-    reward: 1200,
-    intro: 'Lena: "Cops are on you. Lose them at the safehouse — do NOT get busted."',
-  },
-];
-
-export function createMissions(scene, G) {
-  // Beacon: a glowing pillar + floating diamond marking the objective.
-  const beacon = new THREE.Group();
-  const pillar = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.6, 1.6, 30, 16, 1, true),
-    new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false }),
+function makeBeacon(color) {
+  const group = new THREE.Group();
+  const column = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.4, 1.4, 30, 12, 1, true),
+    new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0.28, side: THREE.DoubleSide,
+    }),
   );
-  pillar.position.y = 15;
-  beacon.add(pillar);
-  const diamond = new THREE.Mesh(
-    new THREE.OctahedronGeometry(1.1),
-    new THREE.MeshBasicMaterial({ color: 0xffd23f }),
-  );
-  diamond.position.y = 6;
-  beacon.add(diamond);
+  column.position.y = 15;
+  group.add(column);
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(2.2, 3.0, 32),
-    new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.8, side: THREE.DoubleSide }),
+    new THREE.TorusGeometry(2.2, 0.25, 8, 24),
+    new THREE.MeshBasicMaterial({ color }),
   );
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.15;
-  beacon.add(ring);
-  beacon.visible = false;
-  scene.add(beacon);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.3;
+  group.add(ring);
+  const marker = new THREE.Mesh(
+    new THREE.ConeGeometry(0.9, 2.2, 8),
+    new THREE.MeshBasicMaterial({ color }),
+  );
+  marker.position.y = 4.5;
+  marker.rotation.x = Math.PI;
+  group.add(marker);
+  group.userData.marker = marker;
+  group.userData.ring = ring;
+  return group;
+}
 
-  const state = {
-    index: G.save.missionsDone.length >= 3 ? 3 : G.save.missionsDone.length,
-    stage: 'idle',
-    timer: 0,
-    target: null,
-    hasPackage: false,
-  };
+export class MissionSystem {
+  constructor(scene, city) {
+    this.scene = scene;
+    this.city = city;
+    this.index = 0; // 0-based into MISSION_DEFS
+    this.state = 'idle'; // idle | active | done | complete
+    this.beacon = null;
+    this.beaconTarget = null;
+    this.timer = 0;
+    this.timerLimit = 0;
+    this.evadeTimer = 0;
+    this.stage = 0; // mission 2: 0 = pick up package, 1 = deliver it
+    this.hasPackage = false;
+    this.pickupPos = { x: -60, z: -60 };
+    this.message = '';
+    this.messageTimer = 0;
+  }
 
-  function setTarget(pos) {
-    state.target = pos;
-    if (pos) {
-      beacon.position.set(pos.x, 0, pos.z);
-      beacon.visible = true;
-    } else {
-      beacon.visible = false;
+  get current() {
+    return MISSION_DEFS[this.index] || null;
+  }
+
+  get active() {
+    return this.state === 'active';
+  }
+
+  get allDone() {
+    return this.index >= MISSION_DEFS.length;
+  }
+
+  showMessage(text, seconds) {
+    this.message = text;
+    this.messageTimer = seconds || 5;
+  }
+
+  setBeacon(x, z, color) {
+    this.clearBeacon();
+    this.beacon = makeBeacon(color || 0xf2c230);
+    this.beacon.position.set(x, 0, z);
+    this.beaconTarget = { x, z };
+    this.scene.add(this.beacon);
+  }
+
+  clearBeacon() {
+    if (this.beacon) {
+      this.scene.remove(this.beacon);
+      this.beacon = null;
+      this.beaconTarget = null;
     }
   }
 
-  function objectiveText() {
-    if (state.index >= 3) return 'Free roam — the debt is yours to pay. Explore Sunshine City.';
-    const m = MISSIONS[state.index];
-    if (state.index === 0) {
-      return state.stage === 'steal'
-        ? 'Steal a car — walk up to one and press E'
-        : 'Drive to Lena\'s garage (follow the yellow beacon)';
+  startMission(player) {
+    const def = this.current;
+    if (!def) {
+      this.state = 'complete';
+      return;
     }
-    if (state.index === 1) {
-      if (state.stage === 'pickup') return 'Pick up the package at the beacon (press E)';
-      return `Deliver the package — ${Math.max(0, Math.ceil(state.timer))}s left!`;
-    }
-    return 'Lose the cops — reach the safehouse beacon before you get BUSTED';
-  }
-
-  function start(index) {
-    state.index = index;
-    state.hasPackage = false;
-    if (index === 0) {
-      state.stage = 'steal';
-      setTarget(null);
-      G.toast(MISSIONS[0].intro, 4);
-    } else if (index === 1) {
-      state.stage = 'pickup';
-      setTarget(G.loc.pickup);
-      G.toast(MISSIONS[1].intro, 4);
-    } else if (index === 2) {
-      state.stage = 'heat';
-      setTarget(G.loc.safehouse);
-      G.setWanted(3);
-      G.heatLock = true;
-      G.toast(MISSIONS[2].intro, 4);
-    }
-    G.updateObjective();
-  }
-
-  function complete() {
-    const m = MISSIONS[state.index];
-    G.cash += m.reward;
-    G.save.cash = G.cash;
-    if (!G.save.missionsDone.includes(m.id)) G.save.missionsDone.push(m.id);
-    G.writeSave();
-    G.audio.chime();
-    G.toast(`+$${m.reward} — ${m.title} complete!`, 3);
-    setTarget(null);
-    state.index += 1;
-    state.stage = 'idle';
-    G.heatLock = false;
-    if (state.index >= 3) {
-      G.showEnd('STORY COMPLETE', `All three jobs done. You earned $${m.reward} on the last one — $${G.cash} total. The debt is still there, but tonight, Sunshine City is yours.`, 'KEEP DRIVING');
-    } else {
-      G.showEnd('MISSION COMPLETE', `${m.title} — Lena wired you $${m.reward}. Cash: $${G.cash}.`, 'NEXT JOB');
+    this.state = 'active';
+    this.stage = 0;
+    this.hasPackage = false;
+    this.timer = 0;
+    this.evadeTimer = 0;
+    this.showMessage(`${def.name} — ${def.briefing}`, 7);
+    if (def.id === 1) {
+      // Point at the blue garage; the mission completes once Marco arrives in a car.
+      this.setBeacon(this.city.garagePos.x, this.city.garagePos.z, 0x2f6fd4);
+      this.timerLimit = 0;
+    } else if (def.id === 2) {
+      this.setBeacon(this.pickupPos.x, this.pickupPos.z, 0xf2c230);
+      this.timerLimit = CONFIG.mission2TimeLimit;
+    } else if (def.id === 3) {
+      player.setWanted(3);
+      this.clearBeacon();
+      this.timerLimit = 0;
+      this.showMessage('Lose the Heat — kabur dari polisi sampai bintang wanted hilang!', 7);
     }
   }
 
-  // Called when the player presses E near something mission-relevant.
-  function interact() {
-    if (state.index === 1 && state.stage === 'pickup' && state.target) {
-      const p = G.playerPos();
-      if (Math.hypot(p.x - state.target.x, p.z - state.target.z) < 5) {
-        state.hasPackage = true;
-        state.stage = 'deliver';
-        state.timer = 90;
-        setTarget(G.loc.deliver);
-        G.audio.chime();
-        G.toast('Package secured — GO! 90 seconds!', 2.5);
-        G.updateObjective();
-        return true;
+  completeMission(player, onReward) {
+    const def = this.current;
+    if (!def) return;
+    player.cash += def.reward;
+    this.showMessage(`Misi selesai: ${def.name}! +$${def.reward}`, 6);
+    if (onReward) onReward(def.reward);
+    this.clearBeacon();
+    this.state = 'done';
+    this.index += 1;
+    this.doneTimer = 3;
+  }
+
+  failMission(reason) {
+    this.showMessage(`Misi gagal: ${reason}. Coba lagi dari awal misi.`, 6);
+    this.clearBeacon();
+    this.state = 'idle';
+    this.idleTimer = 2;
+    this.timer = 0;
+    this.evadeTimer = 0;
+    this.hasPackage = false;
+  }
+
+  update(dt, player, onReward) {
+    if (this.messageTimer > 0) this.messageTimer -= dt;
+    if (this.beacon) {
+      this.beacon.userData.marker.position.y = 4.5 + Math.sin(performance.now() / 300) * 0.5;
+      this.beacon.userData.ring.rotation.z += dt;
+    }
+
+    if (this.state === 'idle') {
+      this.idleTimer = (this.idleTimer || 0) - dt;
+      if (this.idleTimer <= 0 && !this.allDone) {
+        this.startMission(player);
       }
+      return;
     }
-    return false;
-  }
-
-  function update(dt) {
-    if (state.index >= 3) return;
-    diamond.rotation.y += dt * 2;
-    diamond.position.y = 6 + Math.sin(G.time * 2) * 0.5;
-    const p = G.playerPos();
-    if (state.index === 0) {
-      if (state.stage === 'steal' && G.inCar()) {
-        state.stage = 'drive';
-        setTarget(G.loc.garage);
-        G.toast('Nice wheels. Now get to Lena\'s garage.', 2.5);
-        G.updateObjective();
-      } else if (state.stage === 'drive' && state.target) {
-        if (Math.hypot(p.x - state.target.x, p.z - state.target.z) < 12) complete();
+    if (this.state === 'done') {
+      this.doneTimer -= dt;
+      if (this.doneTimer <= 0) {
+        this.state = 'idle';
+        this.idleTimer = 1;
       }
-    } else if (state.index === 1) {
-      if (state.stage === 'deliver') {
-        state.timer -= dt;
-        if (state.timer <= 0) {
-          G.toast('Too slow — the buyer walked. Package run failed, try again.', 3);
-          start(1);
-          return;
+      return;
+    }
+    if (this.state !== 'active') return;
+
+    const def = this.current;
+    const pos = player.position;
+
+    if (def.id === 1) {
+      // Reach the garage while driving a stolen car.
+      if (player.vehicle && this.beaconTarget) {
+        if (distance2D(pos.x, pos.z, this.beaconTarget.x, this.beaconTarget.z) < 9) {
+          this.completeMission(player, onReward);
         }
-        if (state.target && Math.hypot(p.x - state.target.x, p.z - state.target.z) < 12) complete();
       }
-    } else if (state.index === 2) {
-      if (state.target && Math.hypot(p.x - state.target.x, p.z - state.target.z) < 12) {
-        G.setWanted(0);
-        complete();
+    } else if (def.id === 2) {
+      this.timer += dt;
+      if (this.timer > this.timerLimit) {
+        this.failMission('waktu habis — paket tidak sampai tepat waktu');
+        return;
+      }
+      if (this.stage === 0 && this.beaconTarget) {
+        if (distance2D(pos.x, pos.z, this.beaconTarget.x, this.beaconTarget.z) < 7) {
+          this.hasPackage = true;
+          this.stage = 1;
+          this.setBeacon(this.city.dockPos.x, this.city.dockPos.z - 30, 0x2fd47a);
+          this.showMessage('Paket didapat! Antar ke dermaga sebelum waktu habis.', 5);
+        }
+      } else if (this.stage === 1 && this.beaconTarget) {
+        if (distance2D(pos.x, pos.z, this.beaconTarget.x, this.beaconTarget.z) < 8) {
+          this.completeMission(player, onReward);
+        }
+      }
+    } else if (def.id === 3) {
+      if (player.wanted === 0) {
+        this.evadeTimer += dt;
+        if (this.evadeTimer > 3) {
+          this.completeMission(player, onReward);
+        }
+      } else {
+        this.evadeTimer = 0;
       }
     }
   }
 
-  return { state, start, update, interact, objectiveText, setTarget };
+  get objectiveText() {
+    if (this.allDone) return 'Semua misi selesai — Sunshine City milikmu, Marco.';
+    if (this.state === 'idle') return 'Misi berikutnya segera dimulai...';
+    if (this.state === 'done') return 'Misi selesai! Bersiap untuk misi berikutnya.';
+    const def = this.current;
+    if (!def) return '';
+    if (def.id === 1) return 'Misi 1 — First Wheels: curi mobil (E), lalu bawa ke garasi biru.';
+    if (def.id === 2) {
+      const left = Math.max(0, Math.ceil(this.timerLimit - this.timer));
+      if (this.stage === 0) return `Misi 2 — Package Run: ambil paket di penanda kuning. Sisa ${left} dtk.`;
+      return `Misi 2 — Package Run: antar paket ke dermaga! Sisa ${left} dtk.`;
+    }
+    if (def.id === 3) return 'Misi 3 — Lose the Heat: kabur sampai wanted hilang.';
+    return def.name;
+  }
 }

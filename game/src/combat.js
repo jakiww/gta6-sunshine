@@ -1,73 +1,114 @@
-// Pistol combat: click to shoot from the camera centre, raycast against police
-// cars and pedestrians, tracer lines, wanted heat for shooting.
+// Sunshine City — pistol combat. Click to fire a hitscan shot from the
+// camera: tracer line, muzzle flash, hit sparks, and damage to pedestrians
+// and police cruisers. Shooting raises the wanted level.
+
 import * as THREE from 'three';
+import { CONFIG } from './config.js';
 
-export function createCombat(scene) {
-  const raycaster = new THREE.Raycaster();
-  const tracers = [];
-  const tracerMat = new THREE.MeshBasicMaterial({ color: 0xffe27a });
-  let cooldown = 0;
+export class CombatSystem {
+  constructor(scene, camera) {
+    this.scene = scene;
+    this.camera = camera;
+    this.cooldown = 0;
+    this.tracer = null;
+    this.tracerTimer = 0;
+    this.flash = new THREE.PointLight(0xffc860, 0, 14);
+    this.scene.add(this.flash);
+    this.lastShotAt = 0;
+  }
 
-  function shoot(G, camera) {
-    if (cooldown > 0) return false;
-    cooldown = 0.28;
-    G.audio.shoot();
-    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-    raycaster.far = 120;
-    const targets = [];
-    for (const cop of G.police.cops) if (cop.alive) targets.push(cop.mesh);
-    for (const ped of G.peds.peds) if (!ped.down) targets.push(ped.mesh);
-    const hits = raycaster.intersectObjects(targets, true);
-    let end;
-    if (hits.length > 0) {
-      const hit = hits[0];
-      end = hit.point.clone();
-      // Walk up to the car/ped root object.
-      let obj = hit.object;
-      while (obj.parent && obj.parent !== scene) obj = obj.parent;
-      const cop = G.police.cops.find((c) => c.mesh === obj);
-      if (cop) {
-        const destroyed = G.police.damageCop(cop, 34);
-        G.toast(destroyed ? 'Cop car destroyed!' : 'Hit! Cop car damaged.', 1.2);
-        if (destroyed) G.police.addWanted(G, 1);
-      } else {
-        const ped = G.peds.peds.find((p) => p.mesh === obj);
-        if (ped) {
-          ped.knockDown();
-          G.police.addWanted(G, 1);
-          G.toast('You hit a pedestrian! Wanted +1', 1.5);
-        }
+  tryShoot(player, police, peds, onShotFired) {
+    if (this.cooldown > 0) return false;
+    this.cooldown = CONFIG.pistolCooldown;
+    this.lastShotAt = performance.now();
+
+    const origin = new THREE.Vector3();
+    this.camera.getWorldPosition(origin);
+    const direction = new THREE.Vector3();
+    this.camera.getWorldDirection(direction);
+
+    // Find the closest hit among peds and police cruisers along the ray.
+    let bestDist = CONFIG.pistolRange;
+    let hitPoint = origin.clone().add(direction.clone().multiplyScalar(CONFIG.pistolRange));
+    let hitKind = null;
+    let hitTarget = null;
+
+    const ray = new THREE.Raycaster(origin, direction, 0.1, CONFIG.pistolRange);
+    for (const ped of peds.peds) {
+      if (!ped.alive) continue;
+      const target = new THREE.Vector3(ped.x, 1.2, ped.z);
+      const toTarget = target.clone().sub(origin);
+      const along = toTarget.dot(direction);
+      if (along < 0 || along > bestDist) continue;
+      const closest = origin.clone().add(direction.clone().multiplyScalar(along));
+      if (closest.distanceTo(target) < 1.4) {
+        bestDist = along;
+        hitPoint = closest.clone();
+        hitKind = 'ped';
+        hitTarget = ped;
       }
-    } else {
-      end = raycaster.ray.at(90, new THREE.Vector3());
     }
-    // Tracer from the camera to the hit point.
-    const start = camera.position.clone();
-    const dir = end.clone().sub(start);
-    const len = dir.length();
-    const geo = new THREE.BoxGeometry(0.06, 0.06, len);
-    const mesh = new THREE.Mesh(geo, tracerMat);
-    mesh.position.copy(start).addScaledVector(dir, 0.5);
-    mesh.lookAt(end);
-    scene.add(mesh);
-    tracers.push({ mesh, life: 0.09 });
-    G.peds.fleeFrom(G.playerPos().x, G.playerPos().z, 25);
-    G.police.addWanted(G, 0); // refresh lastCrime without raising stars
-    if (G.wanted === 0) G.police.addWanted(G, 1);
+    for (const cruiser of police.cruisers) {
+      if (cruiser.disabled) continue;
+      const target = new THREE.Vector3(cruiser.x, 1.0, cruiser.z);
+      const toTarget = target.clone().sub(origin);
+      const along = toTarget.dot(direction);
+      if (along < 0 || along > bestDist) continue;
+      const closest = origin.clone().add(direction.clone().multiplyScalar(along));
+      if (closest.distanceTo(target) < 2.6) {
+        bestDist = along;
+        hitPoint = closest.clone();
+        hitKind = 'police';
+        hitTarget = cruiser;
+      }
+    }
+    void ray;
+
+    // Tracer + muzzle flash.
+    if (this.tracer) this.scene.remove(this.tracer);
+    const tracerGeo = new THREE.BufferGeometry().setFromPoints([origin, hitPoint]);
+    this.tracer = new THREE.Line(
+      tracerGeo,
+      new THREE.LineBasicMaterial({ color: 0xffe9a0, transparent: true, opacity: 0.9 }),
+    );
+    this.scene.add(this.tracer);
+    this.tracerTimer = 0.07;
+    this.flash.position.copy(origin).add(direction.clone().multiplyScalar(2));
+    this.flash.intensity = 60;
+    setTimeout(() => { this.flash.intensity = 0; }, 60);
+
+    // Hit sparks.
+    const spark = new THREE.Mesh(
+      new THREE.SphereGeometry(0.22, 6, 5),
+      new THREE.MeshBasicMaterial({ color: 0xffd23a }),
+    );
+    spark.position.copy(hitPoint);
+    this.scene.add(spark);
+    setTimeout(() => this.scene.remove(spark), 120);
+
+    if (hitKind === 'ped' && hitTarget) {
+      peds.hitAt(hitTarget.x, hitTarget.z, 1.5);
+      player.addWanted(2);
+    } else if (hitKind === 'police' && hitTarget) {
+      police.damageNearest(hitTarget.x, hitTarget.z, CONFIG.pistolDamage);
+      player.addWanted(1);
+    } else {
+      // Wild shot still draws attention if police are near.
+      player.addWanted(0);
+    }
+
+    if (onShotFired) onShotFired(hitKind, hitPoint);
     return true;
   }
 
-  function update(dt) {
-    cooldown = Math.max(0, cooldown - dt);
-    for (let i = tracers.length - 1; i >= 0; i -= 1) {
-      tracers[i].life -= dt;
-      if (tracers[i].life <= 0) {
-        scene.remove(tracers[i].mesh);
-        tracers[i].mesh.geometry.dispose();
-        tracers.splice(i, 1);
+  update(dt) {
+    this.cooldown = Math.max(0, this.cooldown - dt);
+    if (this.tracerTimer > 0) {
+      this.tracerTimer -= dt;
+      if (this.tracerTimer <= 0 && this.tracer) {
+        this.scene.remove(this.tracer);
+        this.tracer = null;
       }
     }
   }
-
-  return { shoot, update };
 }

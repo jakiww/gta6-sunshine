@@ -1,97 +1,121 @@
-// Police: wanted level, chase AI, ramming, busted on touch, destructible cars.
-import * as THREE from 'three';
-import { makeCarMesh } from './vehicles.js';
+// Sunshine City — police pursuit. The number of cruisers on the street
+// matches the wanted level; they chase, ram, and flash their light bars.
+// On foot, getting caught means Busted.
+
+import { CONFIG } from './config.js';
+import { buildCarMesh, Vehicle } from './vehicles.js';
 import { collideCircle } from './city.js';
-import { WANTED_MAX } from './config.js';
+import { clamp, angleLerp } from './random.js';
 
-export function createPolice(scene) {
-  const cops = [];
-  let flash = 0;
-
-  function spawnCop(near) {
-    const mesh = makeCarMesh(0x111418, true);
-    scene.add(mesh);
-    const cop = {
-      mesh,
-      pos: mesh.position,
-      heading: 0,
-      speed: 0,
-      health: 100,
-      alive: true,
-    };
-    // Spawn on a street near the player.
-    const a = Math.random() * Math.PI * 2;
-    cop.pos.set(near.x + Math.cos(a) * 55, 0, near.z + Math.sin(a) * 55);
-    cop.pos.x = Math.max(-290, Math.min(290, cop.pos.x));
-    cop.pos.z = Math.max(-290, Math.min(290, cop.pos.z));
-    cops.push(cop);
-    return cop;
+export class PoliceSystem {
+  constructor(scene, colliders) {
+    this.scene = scene;
+    this.colliders = colliders;
+    this.cruisers = [];
+    this.strobeTimer = 0;
+    this.spawnCooldown = 0;
   }
 
-  function desiredCount(wanted) {
-    return wanted === 0 ? 0 : Math.min(1 + wanted, 6);
+  desiredCount(wanted) {
+    return Math.min(CONFIG.policeMax, wanted);
   }
 
-  function update(dt, wanted, targetPos, targetInCar, colliders, time) {
-    const want = desiredCount(wanted);
-    while (cops.filter((c) => c.alive).length < want) spawnCop(targetPos);
-    flash += dt;
-    const on = Math.floor(flash * 6) % 2 === 0;
-    for (const cop of cops) {
-      if (!cop.alive) continue;
-      const barR = cop.mesh.userData.barR;
-      const barB = cop.mesh.userData.barB;
-      if (barR && barB) {
-        barR.material.emissive.setHex(on ? 0xff0000 : 0x220000);
-        barB.material.emissive.setHex(on ? 0x000022 : 0x0000ff);
+  spawnCruiser(targetX, targetZ) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 55 + Math.random() * 25;
+    const x = clamp(targetX + Math.sin(angle) * dist, -195, 195);
+    const z = clamp(targetZ + Math.cos(angle) * dist, -195, 195);
+    const mesh = buildCarMesh(0xf2f2f2, true);
+    const cruiser = new Vehicle(mesh, x, z, Math.atan2(targetX - x, targetZ - z), 0xf2f2f2);
+    cruiser.isPolice = true;
+    cruiser.speed = 10;
+    this.scene.add(mesh);
+    this.cruisers.push(cruiser);
+    return cruiser;
+  }
+
+  removeCruiser(cruiser) {
+    this.scene.remove(cruiser.mesh);
+    const index = this.cruisers.indexOf(cruiser);
+    if (index >= 0) this.cruisers.splice(index, 1);
+  }
+
+  clearAll() {
+    for (const cruiser of this.cruisers.slice()) this.removeCruiser(cruiser);
+  }
+
+  update(dt, wanted, targetX, targetZ, targetSpeed, onCaught, onRam) {
+    // Keep the cruiser count in step with the wanted level.
+    this.spawnCooldown -= dt;
+    const want = this.desiredCount(wanted);
+    if (this.cruisers.length < want && this.spawnCooldown <= 0) {
+      this.spawnCruiser(targetX, targetZ);
+      this.spawnCooldown = 2.5;
+    }
+    while (this.cruisers.length > want) {
+      this.removeCruiser(this.cruisers[this.cruisers.length - 1]);
+    }
+
+    // Strobe the light bars.
+    this.strobeTimer += dt;
+    const phase = Math.floor(this.strobeTimer * 6) % 2 === 0;
+    for (const cruiser of this.cruisers) {
+      const left = cruiser.mesh.userData.strobeLeft;
+      const right = cruiser.mesh.userData.strobeRight;
+      if (left) left.visible = phase;
+      if (right) right.visible = !phase;
+    }
+
+    for (const cruiser of this.cruisers.slice()) {
+      if (cruiser.disabled) {
+        cruiser.speed *= 1 - 1.5 * dt;
+        cruiser.syncMesh();
+        continue;
       }
-      const dx = targetPos.x - cop.pos.x;
-      const dz = targetPos.z - cop.pos.z;
-      const dist = Math.hypot(dx, dz) || 1;
-      const wantHeading = Math.atan2(dx, dz);
-      let dh = wantHeading - cop.heading;
-      while (dh > Math.PI) dh -= Math.PI * 2;
-      while (dh < -Math.PI) dh += Math.PI * 2;
-      cop.heading += Math.max(-2.4 * dt, Math.min(2.4 * dt, dh));
-      const topSpeed = 24 + wanted * 2.5;
-      cop.speed = Math.min(topSpeed, cop.speed + 14 * dt);
-      cop.pos.x += Math.sin(cop.heading) * cop.speed * dt;
-      cop.pos.z += Math.cos(cop.heading) * cop.speed * dt;
-      collideCircle(cop.pos, 2.2, colliders);
-      cop.mesh.position.set(cop.pos.x, 0, cop.pos.z);
-      cop.mesh.rotation.y = cop.heading;
-      for (const w of cop.mesh.userData.wheels) w.rotation.x += cop.speed * dt * 2;
-      void targetInCar; void time;
+      // Steer toward the target with a little wobble so it feels alive.
+      const desired = Math.atan2(targetX - cruiser.x, targetZ - cruiser.z);
+      cruiser.heading = angleLerp(cruiser.heading, desired, Math.min(1, dt * 1.6));
+      const dist = Math.hypot(targetX - cruiser.x, targetZ - cruiser.z);
+      const targetCruise = dist > 60 ? CONFIG.policeSpeed : CONFIG.policeSpeed * 0.85;
+      cruiser.speed += (targetCruise - cruiser.speed) * Math.min(1, dt * 0.9);
+
+      const nextX = cruiser.x + Math.sin(cruiser.heading) * cruiser.speed * dt;
+      const nextZ = cruiser.z + Math.cos(cruiser.heading) * cruiser.speed * dt;
+      const resolved = collideCircle(this.colliders, nextX, nextZ, 2.1);
+      if (resolved.hit) cruiser.speed *= 0.5;
+      cruiser.x = resolved.x;
+      cruiser.z = resolved.z;
+      cruiser.syncMesh();
+
+      // Catch / ram checks.
+      const afterDist = Math.hypot(targetX - cruiser.x, targetZ - cruiser.z);
+      if (afterDist < CONFIG.policeCatchRange) {
+        if (targetSpeed === 0) {
+          // Target on foot and a cruiser is on top of them: busted.
+          if (onCaught) onCaught(cruiser);
+        } else if (onRam) {
+          onRam(cruiser, afterDist);
+        }
+      }
     }
   }
 
-  function nearestCop(pos) {
-    let best = null; let bestD = Infinity;
-    for (const cop of cops) {
-      if (!cop.alive) continue;
-      const d = Math.hypot(cop.pos.x - pos.x, cop.pos.z - pos.z);
-      if (d < bestD) { bestD = d; best = cop; }
+  damageNearest(x, z, damage) {
+    let best = null;
+    let bestDist = 6;
+    for (const cruiser of this.cruisers) {
+      const dist = Math.hypot(cruiser.x - x, cruiser.z - z);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = cruiser;
+      }
     }
-    return { cop: best, dist: bestD };
-  }
-
-  function damageCop(cop, amount) {
-    cop.health -= amount;
-    if (cop.health <= 0 && cop.alive) {
-      cop.alive = false;
-      // Explosion flash: tip the car over and sink it.
-      cop.mesh.rotation.z = 0.6;
-      cop.mesh.position.y = -0.4;
-      setTimeout(() => { cop.mesh.visible = false; }, 900);
-      return true;
+    if (!best) return null;
+    best.health -= damage;
+    if (best.health <= 0 && !best.disabled) {
+      best.disabled = true;
+      best.mesh.rotation.z = 0.12;
     }
-    return false;
+    return best;
   }
-
-  function addWanted(state, n) {
-    state.wanted = Math.min(WANTED_MAX, state.wanted + n);
-    state.lastCrime = state.time;
-  }
-
-  return { cops, update, nearestCop, damageCop, addWanted };
 }

@@ -1,70 +1,195 @@
-// Marco Reyes on foot: WASD movement relative to the camera, Shift to run,
-// simple walk bob, building collision.
+// Sunshine City — Marco Reyes on foot and behind the wheel.
+// Walking with camera-relative WASD, stealing parked cars with E,
+// exiting with F, and taking damage from police rams.
+
 import * as THREE from 'three';
-import { PLAYER } from './config.js';
+import { CONFIG } from './config.js';
+import { clamp, angleLerp } from './random.js';
 import { collideCircle } from './city.js';
+import { driveVehicle, nearestParkedCar } from './vehicles.js';
 
-export function createPlayer(scene, spawn) {
+function buildMarcoMesh() {
   const group = new THREE.Group();
-  const skin = new THREE.MeshLambertMaterial({ color: 0xc98d64 });
-  const jacket = new THREE.MeshLambertMaterial({ color: 0x1f8a70 });
-  const pants = new THREE.MeshLambertMaterial({ color: 0x2c3e50 });
-  const hair = new THREE.MeshLambertMaterial({ color: 0x1c1410 });
+  const skinMat = new THREE.MeshLambertMaterial({ color: 0xc98a5a });
+  const shirtMat = new THREE.MeshLambertMaterial({ color: 0x2fd4d4 });
+  const jacketMat = new THREE.MeshLambertMaterial({ color: 0x1c2f42 });
+  const pantsMat = new THREE.MeshLambertMaterial({ color: 0x2a2a3a });
 
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.0, 0.5), jacket);
-  torso.position.y = 1.05; group.add(torso);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 10), skin);
-  head.position.y = 1.85; group.add(head);
-  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.33, 12, 6, 0, Math.PI * 2, 0, 1.1), hair);
-  cap.position.y = 1.92; group.add(cap);
-  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.85, 0.36), pants);
-  legL.position.set(-0.22, 0.42, 0); group.add(legL);
-  const legR = legL.clone(); legR.position.x = 0.22; group.add(legR);
-  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.85, 0.3), jacket);
-  armL.position.set(-0.6, 1.05, 0); group.add(armL);
-  const armR = armL.clone(); armR.position.x = 0.6; group.add(armR);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 8), skinMat);
+  head.position.y = 1.66;
+  group.add(head);
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.29, 0.12, 10), jacketMat);
+  cap.position.y = 1.86;
+  group.add(cap);
+  const brim = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.05, 0.3), jacketMat);
+  brim.position.set(0, 1.82, 0.3);
+  group.add(brim);
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.72, 0.36), shirtMat);
+  torso.position.y = 1.16;
+  group.add(torso);
+  const jacket = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.5, 0.42), jacketMat);
+  jacket.position.y = 1.3;
+  group.add(jacket);
 
-  group.position.set(spawn.x, 0, spawn.z);
-  scene.add(group);
+  const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.8, 0.25), pantsMat);
+  leftLeg.position.set(-0.17, 0.4, 0);
+  group.add(leftLeg);
+  const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.8, 0.25), pantsMat);
+  rightLeg.position.set(0.17, 0.4, 0);
+  group.add(rightLeg);
+  const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.64, 0.18), shirtMat);
+  leftArm.position.set(-0.44, 1.18, 0);
+  group.add(leftArm);
+  const rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.64, 0.18), shirtMat);
+  rightArm.position.set(0.44, 1.18, 0);
+  group.add(rightArm);
 
-  const state = {
-    mesh: group, legL, legR, armL, armR,
-    pos: group.position, yaw: Math.PI, // facing the camera start
-    health: PLAYER.maxHealth,
-    lastDamage: -99,
-    moving: false,
-  };
+  group.userData.leftLeg = leftLeg;
+  group.userData.rightLeg = rightLeg;
+  group.userData.leftArm = leftArm;
+  group.userData.rightArm = rightArm;
+  return group;
+}
 
-  function update(dt, input, camYaw, colliders, bounds, time) {
-    const ax = input.axis();
-    const speed = input.running() ? PLAYER.runSpeed : PLAYER.walkSpeed;
-    let mx = 0; let mz = 0;
-    if (ax.x !== 0 || ax.z !== 0) {
-      // Camera-relative: W moves away from the camera.
-      // Forward (away from camera) = (-sin(camYaw), -cos(camYaw)) in xz.
-      const fx = -Math.sin(camYaw); const fz = -Math.cos(camYaw);
-      const rx = -fz; const rz = fx;
-      mx = fx * ax.z + rx * ax.x;
-      mz = fz * ax.z + rz * ax.x;
-      const len = Math.hypot(mx, mz) || 1;
-      mx /= len; mz /= len;
-      state.pos.x += mx * speed * dt;
-      state.pos.z += mz * speed * dt;
-      state.yaw = Math.atan2(mx, mz);
-      state.moving = true;
-    } else {
-      state.moving = false;
-    }
-    // Clamp to the playable area and push out of buildings.
-    state.pos.x = Math.max(-bounds, Math.min(bounds, state.pos.x));
-    state.pos.z = Math.max(-bounds, Math.min(bounds + 60, state.pos.z));
-    collideCircle(state.pos, PLAYER.radius, colliders);
-    group.rotation.y = state.yaw;
-    const swing = state.moving ? Math.sin(time * (input.running() ? 14 : 10)) * 0.55 : 0;
-    legL.rotation.x = swing; legR.rotation.x = -swing;
-    armL.rotation.x = -swing * 0.7; armR.rotation.x = swing * 0.7;
-    group.position.y = state.moving ? Math.abs(Math.sin(time * 10)) * 0.08 : 0;
+export class Player {
+  constructor(scene, spawn) {
+    this.mesh = buildMarcoMesh();
+    this.x = spawn.x;
+    this.z = spawn.z;
+    this.heading = Math.PI;
+    this.speed = 0;
+    this.health = CONFIG.playerHealth;
+    this.cash = 0;
+    this.wanted = 0;
+    this.vehicle = null;
+    this.carsStolen = 0;
+    this.walkPhase = 0;
+    this.ramCooldown = 0;
+    this.wantedCalmTimer = 0;
+    this.wantedDecayTimer = 0;
+    this.mesh.position.set(this.x, 0, this.z);
+    scene.add(this.mesh);
   }
 
-  return { state, update };
+  get speedKmh() {
+    const speed = this.vehicle ? Math.abs(this.vehicle.speed) : Math.abs(this.speed);
+    return Math.round(speed * 3.6);
+  }
+
+  get position() {
+    if (this.vehicle) return { x: this.vehicle.x, z: this.vehicle.z };
+    return { x: this.x, z: this.z };
+  }
+
+  addWanted(amount) {
+    this.wanted = clamp(this.wanted + amount, 0, 5);
+    this.wantedCalmTimer = 0;
+    this.wantedDecayTimer = 0;
+  }
+
+  setWanted(value) {
+    this.wanted = clamp(value, 0, 5);
+    this.wantedCalmTimer = 0;
+    this.wantedDecayTimer = 0;
+  }
+
+  updateWanted(dt) {
+    if (this.wanted === 0) return;
+    this.wantedCalmTimer += dt;
+    if (this.wantedCalmTimer > CONFIG.wantedDecayCalmSeconds) {
+      this.wantedDecayTimer += dt;
+      if (this.wantedDecayTimer > CONFIG.wantedDecayInterval) {
+        this.wantedDecayTimer = 0;
+        this.wanted = Math.max(0, this.wanted - 1);
+      }
+    }
+  }
+
+  takeDamage(amount) {
+    this.health = clamp(this.health - amount, 0, CONFIG.playerHealth);
+    return this.health <= 0;
+  }
+
+  heal(amount) {
+    this.health = clamp(this.health + amount, 0, CONFIG.playerHealth);
+  }
+
+  enterCar(car) {
+    this.vehicle = car;
+    car.isPlayer = true;
+    this.mesh.visible = false;
+    this.carsStolen += 1;
+  }
+
+  exitCar() {
+    if (!this.vehicle) return;
+    const car = this.vehicle;
+    car.isPlayer = false;
+    // Step out to the driver's side.
+    const sideX = Math.cos(car.heading);
+    const sideZ = -Math.sin(car.heading);
+    this.x = car.x + sideX * 2.6;
+    this.z = car.z + sideZ * 2.6;
+    this.heading = car.heading;
+    this.vehicle = null;
+    this.mesh.visible = true;
+    this.mesh.position.set(this.x, 0, this.z);
+    this.mesh.rotation.y = this.heading;
+  }
+
+  update(dt, input, colliders, parkedCars, cameraYaw, callbacks) {
+    this.ramCooldown = Math.max(0, this.ramCooldown - dt);
+
+    if (this.vehicle) {
+      const beforeSpeed = Math.abs(this.vehicle.speed);
+      driveVehicle(this.vehicle, input, dt, colliders, (impactSpeed) => {
+        if (callbacks.onCrash) callbacks.onCrash(impactSpeed);
+      });
+      if (input.consumeExit()) this.exitCar();
+      return;
+    }
+
+    // On foot: camera-relative movement.
+    const move = input.moveVector();
+    const targetSpeed = move.x !== 0 || move.z !== 0
+      ? (input.running ? CONFIG.runSpeed : CONFIG.walkSpeed)
+      : 0;
+    this.speed += (targetSpeed - this.speed) * Math.min(1, dt * 10);
+
+    if (this.speed > 0.1) {
+      const worldX = move.x * Math.cos(cameraYaw) - move.z * Math.sin(cameraYaw);
+      const worldZ = move.x * Math.sin(cameraYaw) + move.z * Math.cos(cameraYaw);
+      const targetHeading = Math.atan2(worldX, worldZ);
+      this.heading = angleLerp(this.heading, targetHeading, Math.min(1, dt * 12));
+      const nextX = this.x + Math.sin(this.heading) * this.speed * dt;
+      const nextZ = this.z + Math.cos(this.heading) * this.speed * dt;
+      const resolved = collideCircle(colliders, nextX, nextZ, 0.7);
+      this.x = resolved.x;
+      this.z = resolved.z;
+    }
+
+    // Walk cycle.
+    this.walkPhase += this.speed * dt * 1.6;
+    const swing = Math.sin(this.walkPhase) * 0.55 * Math.min(1, this.speed / 8);
+    this.mesh.userData.leftLeg.rotation.x = swing;
+    this.mesh.userData.rightLeg.rotation.x = -swing;
+    this.mesh.userData.leftArm.rotation.x = -swing * 0.7;
+    this.mesh.userData.rightArm.rotation.x = swing * 0.7;
+    this.mesh.position.set(this.x, 0, this.z);
+    this.mesh.rotation.y = this.heading;
+
+    // Steal the nearest parked car with E.
+    if (input.consumeAction()) {
+      const car = nearestParkedCar(parkedCars, this.x, this.z, CONFIG.stealRange);
+      if (car) {
+        const index = parkedCars.indexOf(car);
+        if (index >= 0) parkedCars.splice(index, 1);
+        this.enterCar(car);
+        this.addWanted(1);
+        if (callbacks.onSteal) callbacks.onSteal(car);
+      } else if (callbacks.onStealFail) {
+        callbacks.onStealFail();
+      }
+    }
+  }
 }
