@@ -80,7 +80,7 @@ function applyDemoMode() {
     }
     player.setWanted(3);
     police.parade = true;
-    const spots = [[-120, -2.5], [-105, 2.5], [-90, -2.5]];
+    const spots = [[-128, -2.5], [-116, 2.5], [-104, -2.5]];
     for (const [sx, sz] of spots) {
       const cruiser = police.spawnCruiser(player.position.x, player.position.z);
       cruiser.x = sx;
@@ -105,9 +105,10 @@ function applyDemoMode() {
       car.syncMesh();
     }
   } else if (demoMode === 'onfoot') {
-    player.x = 10;
-    player.z = 20;
-    player.heading = Math.PI * 0.75;
+    // Walk north up the middle of road x=0: always clear of buildings.
+    player.x = 0;
+    player.z = 30;
+    player.heading = Math.PI;
     player.mesh.position.set(player.x, 0, player.z);
   } else if (demoMode === 'beach') {
     player.x = -40;
@@ -213,6 +214,10 @@ function tick(now) {
 
   // Demo modes auto-drive so the scene keeps moving for screenshots.
   if (demoMode) input.keys.add('KeyW');
+  // Demo modes hide the centre message banner so the scene stays readable.
+  if (demoMode) missions.messageTimer = 0;
+  // Parade cruisers match the player's speed so they stay ahead in frame.
+  if (police.parade) police.paradeSpeed = player.vehicle ? Math.abs(player.vehicle.speed) : 0;
 
   player.update(dt, input, city.colliders, parkedCars, cameraYaw, {
     onSteal: () => {
@@ -323,6 +328,9 @@ updateCamera(0.016);
 hud.update(player, missions, false);
 minimap.draw(city, player, traffic, police, peds, missions);
 renderer.render(scene, camera);
+
+// Debug handle for automated checks and screenshot staging (read-only state).
+window.__sunshine = { player, missions, police, traffic, peds, demoMode };
 
 if (autoStart) {
   startGame();

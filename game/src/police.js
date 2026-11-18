@@ -15,6 +15,7 @@ export class PoliceSystem {
     this.strobeTimer = 0;
     this.spawnCooldown = 0;
     this.parade = false; // demo staging: cruisers cruise ahead in formation, strobes on
+    this.paradeSpeed = 0; // demo staging: set each frame to the player's speed
   }
 
   desiredCount(wanted) {
@@ -70,9 +71,10 @@ export class PoliceSystem {
     // Parade mode (screenshot staging): cruisers cruise ahead of the player
     // in formation instead of chasing, so their light bars stay in frame.
     if (this.parade) {
+      const cruise = Math.max(18, this.paradeSpeed + 2);
       for (const cruiser of this.cruisers) {
         cruiser.heading = Math.PI / 2 + Math.sin(this.strobeTimer * 0.8 + cruiser.x * 0.1) * 0.05;
-        cruiser.speed += (16 - cruiser.speed) * Math.min(1, dt * 1.5);
+        cruiser.speed += (cruise - cruiser.speed) * Math.min(1, dt * 1.5);
         cruiser.x += Math.sin(cruiser.heading) * cruiser.speed * dt;
         cruiser.z += Math.cos(cruiser.heading) * cruiser.speed * dt;
         cruiser.syncMesh();

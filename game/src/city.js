@@ -146,7 +146,7 @@ export function buildCity(scene) {
       const cx = (roads[ix] + roads[ix + 1]) / 2;
       const cz = (roads[iz] + roads[iz + 1]) / 2;
       const size = CONFIG.blockSize - CONFIG.roadWidth;
-      const walk = new THREE.Mesh(new THREE.PlaneGeometry(size + 6, size + 6), walkMat);
+      const walk = new THREE.Mesh(new THREE.PlaneGeometry(Math.round(size * 0.62), Math.round(size * 0.62)), walkMat);
       walk.rotation.x = -Math.PI / 2;
       walk.position.set(cx, 0.04, cz);
       scene.add(walk);

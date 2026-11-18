@@ -97,7 +97,7 @@ export class MissionSystem {
     this.hasPackage = false;
     this.timer = 0;
     this.evadeTimer = 0;
-    this.showMessage(`${def.name} — ${def.briefing}`, 7);
+    this.showMessage(`${def.name} — ${def.briefing}`, 5);
     if (def.id === 1) {
       // Point at the blue garage; the mission completes once Marco arrives in a car.
       this.setBeacon(this.city.garagePos.x, this.city.garagePos.z, 0x2f6fd4);
@@ -109,7 +109,7 @@ export class MissionSystem {
       player.setWanted(3);
       this.clearBeacon();
       this.timerLimit = 0;
-      this.showMessage('Lose the Heat — kabur dari polisi sampai bintang wanted hilang!', 7);
+      this.showMessage('Lose the Heat — kabur dari polisi sampai bintang wanted hilang!', 5);
     }
   }
 
