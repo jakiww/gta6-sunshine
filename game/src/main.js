@@ -66,19 +66,29 @@ let ramSoundCooldown = 0;
 
 function applyDemoMode() {
   if (demoMode === 'chase') {
-    // Player already driving, three-star heat, cruisers closing in.
+    // Player already driving east on road z=0, three-star heat, cruisers
+    // parading ahead in formation so their light bars stay in frame.
     const car = parkedCars[0];
     if (car) {
       parkedCars.splice(0, 1);
       player.enterCar(car);
-      car.x = -30;
-      car.z = 30;
+      car.x = -150;
+      car.z = 0;
       car.heading = Math.PI / 2;
       car.speed = 22;
       car.syncMesh();
     }
     player.setWanted(3);
-    for (let i = 0; i < 3; i++) police.spawnCruiser(player.position.x, player.position.z);
+    police.parade = true;
+    const spots = [[-120, -2.5], [-105, 2.5], [-90, -2.5]];
+    for (const [sx, sz] of spots) {
+      const cruiser = police.spawnCruiser(player.position.x, player.position.z);
+      cruiser.x = sx;
+      cruiser.z = sz;
+      cruiser.heading = Math.PI / 2;
+      cruiser.speed = 16;
+      cruiser.syncMesh();
+    }
   } else if (demoMode === 'mission') {
     missions.index = 1;
     missions.state = 'idle';
@@ -88,8 +98,8 @@ function applyDemoMode() {
       const index = parkedCars.indexOf(car);
       if (index >= 0) parkedCars.splice(index, 1);
       player.enterCar(car);
-      car.x = -70;
-      car.z = -50;
+      car.x = -120;
+      car.z = -60;
       car.heading = Math.PI / 2;
       car.speed = 14;
       car.syncMesh();
@@ -200,6 +210,9 @@ function tick(now) {
   }
 
   ramSoundCooldown = Math.max(0, ramSoundCooldown - dt);
+
+  // Demo modes auto-drive so the scene keeps moving for screenshots.
+  if (demoMode) input.keys.add('KeyW');
 
   player.update(dt, input, city.colliders, parkedCars, cameraYaw, {
     onSteal: () => {
