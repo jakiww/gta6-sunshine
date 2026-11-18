@@ -1,6 +1,8 @@
-// Sunshine City — the DOM HUD: cash, wanted stars, health bar, speed,
-// mission objective, message banner, crosshair, and the start / pause /
-// game-over screens. All styling lives in index.html; this only updates text.
+// Sunshine City — the HUD: cash, wanted stars, health, speed,
+// mission objective, message toasts, and the busted / start screens.
+// All DOM, updated from the game state every frame.
+
+import { formatMoney } from './util.js';
 
 export class Hud {
   constructor() {
@@ -11,84 +13,76 @@ export class Hud {
     this.speedEl = document.getElementById('hud-speed');
     this.objectiveEl = document.getElementById('hud-objective');
     this.messageEl = document.getElementById('hud-message');
-    this.hintEl = document.getElementById('hud-hint');
-    this.crosshairEl = document.getElementById('crosshair');
-    this.startScreen = document.getElementById('start-screen');
-    this.pauseScreen = document.getElementById('pause-screen');
-    this.overScreen = document.getElementById('gameover-screen');
-    this.overTitle = document.getElementById('gameover-title');
-    this.overText = document.getElementById('gameover-text');
-    this.missionListEl = document.getElementById('hud-missions');
-    this.lastMessage = '';
+    this.promptEl = document.getElementById('hud-prompt');
+    this.bustedEl = document.getElementById('busted-screen');
+    this.startEl = document.getElementById('start-screen');
+    this.helpEl = document.getElementById('help-panel');
+    this._messageTimer = 0;
+    this._flashTimer = 0;
   }
 
-  update(player, missions, driving) {
-    if (this.cashEl) this.cashEl.textContent = `$${Math.floor(player.cash).toLocaleString('en-US')}`;
-    if (this.starsEl) {
-      let stars = '';
-      for (let i = 0; i < 5; i++) stars += i < player.wanted ? '★' : '☆';
-      this.starsEl.textContent = stars;
-      this.starsEl.classList.toggle('hot', player.wanted >= 3);
+  update(game) {
+    this.cashEl.textContent = formatMoney(game.cash);
+    const wanted = Math.round(game.wanted);
+    let stars = '';
+    for (let i = 0; i < 5; i++) stars += i < wanted ? '★' : '☆';
+    this.starsEl.textContent = stars;
+    this.starsEl.classList.toggle('hot', wanted >= 3);
+
+    const hp = Math.max(0, Math.round(game.player.health));
+    this.healthFill.style.width = hp + '%';
+    this.healthFill.style.background = hp > 50 ? '#37c978' : hp > 25 ? '#f2c230' : '#e5484d';
+    this.healthText.textContent = hp;
+
+    const kmh = Math.round(Math.abs(game.player.inCar ? game.player.inCar.speed : game.player.speed) * 3.6);
+    this.speedEl.textContent = kmh + ' km/h';
+
+    this.objectiveEl.textContent = game.missions.objectiveText();
+
+    if (this._messageTimer > 0) {
+      this._messageTimer -= 1 / 60;
+      if (this._messageTimer <= 0) this.messageEl.classList.add('hidden');
     }
-    if (this.healthFill) {
-      this.healthFill.style.width = `${player.health}%`;
-      this.healthFill.classList.toggle('low', player.health < 30);
-    }
-    if (this.healthText) this.healthText.textContent = `${Math.round(player.health)}`;
-    if (this.speedEl) {
-      this.speedEl.textContent = driving ? `${player.speedKmh} km/h` : '—';
-    }
-    if (this.objectiveEl) this.objectiveEl.textContent = missions.objectiveText;
-    if (this.messageEl) {
-      const text = missions.messageTimer > 0 ? missions.message : '';
-      if (text !== this.lastMessage) {
-        this.messageEl.textContent = text;
-        this.messageEl.style.opacity = text ? '1' : '0';
-        this.lastMessage = text;
-      }
-    }
-    if (this.hintEl) {
-      this.hintEl.textContent = driving
-        ? 'WASD mengemudi · Spasi rem · F keluar mobil · Klik tembak · P jeda'
-        : 'WASD jalan · Shift lari · E curi mobil · Klik tembak · P jeda';
-    }
-    if (this.crosshairEl) {
-      this.crosshairEl.style.display = driving ? 'none' : 'block';
-    }
-    if (this.missionListEl) {
-      const names = ['1. First Wheels', '2. Package Run', '3. Lose the Heat'];
-      this.missionListEl.innerHTML = names
-        .map((name, i) => {
-          const done = i < missions.index;
-          const current = i === missions.index && !missions.allDone;
-          const cls = done ? 'done' : current ? 'current' : '';
-          return `<div class="mission-row ${cls}">${done ? '✓' : current ? '▶' : '○'} ${name}</div>`;
-        })
-        .join('');
+    if (this._flashTimer > 0) {
+      this._flashTimer -= 1 / 60;
+      if (this._flashTimer <= 0) this.messageEl.classList.add('hidden');
     }
   }
 
-  showStart() {
-    if (this.startScreen) this.startScreen.classList.remove('hidden');
-    if (this.pauseScreen) this.pauseScreen.classList.add('hidden');
-    if (this.overScreen) this.overScreen.classList.add('hidden');
+  showMessage(text, seconds) {
+    this.messageEl.textContent = text;
+    this.messageEl.classList.remove('hidden');
+    this._messageTimer = seconds || 4;
+    this._flashTimer = 0;
   }
 
-  hideStart() {
-    if (this.startScreen) this.startScreen.classList.add('hidden');
+  // A short-lived warning that does not fight the main message timer.
+  flashMessage(text, seconds) {
+    this.messageEl.textContent = text;
+    this.messageEl.classList.remove('hidden');
+    this._flashTimer = seconds || 0.5;
   }
 
-  showPause(paused) {
-    if (this.pauseScreen) this.pauseScreen.classList.toggle('hidden', !paused);
+  showPrompt(text) {
+    if (!text) {
+      this.promptEl.classList.add('hidden');
+      return;
+    }
+    this.promptEl.textContent = text;
+    this.promptEl.classList.remove('hidden');
   }
 
-  showGameOver(title, text) {
-    if (this.overTitle) this.overTitle.textContent = title;
-    if (this.overText) this.overText.textContent = text;
-    if (this.overScreen) this.overScreen.classList.remove('hidden');
-  }
+  showStart() { this.startEl.classList.remove('hidden'); }
+  hideStart() { this.startEl.classList.add('hidden'); }
 
-  hideGameOver() {
-    if (this.overScreen) this.overScreen.classList.add('hidden');
+  showBusted() { this.bustedEl.classList.remove('hidden'); }
+  hideBusted() { this.bustedEl.classList.add('hidden'); }
+
+  toggleHelp() { this.helpEl.classList.toggle('hidden'); }
+
+  // Fill the start screen with the live save summary, if any.
+  setStartStats(cash, missionsDone) {
+    const el = document.getElementById('start-stats');
+    if (el) el.textContent = 'Cash ' + formatMoney(cash) + '  •  Missions done: ' + missionsDone + '/3';
   }
 }

@@ -1,119 +1,140 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sunshine City — Open World Crime</title>
+<link rel="icon" href="data:,">
+<title>Sunshine City — Marco Reyes</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0e14; font-family: 'Segoe UI', Arial, sans-serif; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #8fd3f4;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #fff; }
   #game-canvas { display: block; width: 100%; height: 100%; }
 
-  #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; z-index: 5; }
-  #hud-top-left { position: absolute; top: 16px; left: 16px; }
-  #hud-cash { font-size: 30px; font-weight: 800; color: #7dff8a; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
-  #hud-stars { font-size: 26px; letter-spacing: 3px; color: #ffd23a; text-shadow: 0 2px 6px rgba(0,0,0,.8); margin-top: 2px; }
-  #hud-stars.hot { color: #ff3b30; animation: pulse 0.7s infinite alternate; }
-  @keyframes pulse { from { opacity: 1; } to { opacity: 0.55; } }
-  #hud-health { margin-top: 8px; width: 210px; }
-  #hud-health-label { font-size: 12px; font-weight: 700; letter-spacing: 1px; text-shadow: 0 1px 3px #000; }
-  #hud-health-bar { height: 12px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.5); border-radius: 6px; overflow: hidden; margin-top: 3px; }
-  #hud-health-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #37d67a, #7dff8a); transition: width .25s; }
-  #hud-health-fill.low { background: linear-gradient(90deg, #d63737, #ff7a5c); }
+  .hidden { display: none !important; }
 
-  #hud-top-right { position: absolute; top: 16px; right: 16px; text-align: right; }
-  #minimap { width: 190px; height: 190px; border: 3px solid rgba(255,255,255,.85); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.5); background: #6a9e52; }
-  #hud-speed { font-size: 22px; font-weight: 800; margin-top: 6px; text-shadow: 0 2px 6px rgba(0,0,0,.8); }
+  /* --- Top-left: cash + wanted --- */
+  #hud-top-left { position: fixed; top: 14px; left: 16px; z-index: 10;
+    text-shadow: 0 2px 4px rgba(0,0,0,.6); }
+  #hud-cash { font-size: 30px; font-weight: 800; color: #7dff9b; letter-spacing: .5px; }
+  #hud-stars { font-size: 26px; letter-spacing: 4px; color: #ffd23e; margin-top: 2px; }
+  #hud-stars.hot { color: #ff5252; animation: pulse .6s infinite alternate; }
+  @keyframes pulse { from { opacity: 1; } to { opacity: .55; } }
 
-  #hud-missions { position: absolute; top: 16px; left: 250px; background: rgba(0,0,0,.45); border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.7; }
-  #hud-missions .mission-row { color: #cfd6dd; }
-  #hud-missions .mission-row.done { color: #7dff8a; }
-  #hud-missions .mission-row.current { color: #ffd23a; font-weight: 700; }
+  /* --- Top-right: health + speed --- */
+  #hud-top-right { position: fixed; top: 14px; right: 16px; z-index: 10; text-align: right;
+    text-shadow: 0 2px 4px rgba(0,0,0,.6); }
+  #hud-speed { font-size: 26px; font-weight: 800; }
+  .health-row { display: flex; align-items: center; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+  #hud-health-bar { width: 150px; height: 12px; background: rgba(0,0,0,.55);
+    border: 1px solid rgba(255,255,255,.5); border-radius: 6px; overflow: hidden; }
+  #hud-health-fill { height: 100%; width: 100%; background: #37c978; }
 
-  #hud-objective { position: absolute; left: 50%; bottom: 118px; transform: translateX(-50%); max-width: 640px; text-align: center; font-size: 16px; font-weight: 600; background: rgba(0,0,0,.55); padding: 8px 16px; border-radius: 20px; text-shadow: 0 1px 3px #000; }
-  #hud-message { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); max-width: 680px; text-align: center; font-size: 19px; font-weight: 700; background: rgba(20,30,60,.72); border: 1px solid rgba(255,210,58,.7); padding: 12px 20px; border-radius: 12px; opacity: 0; transition: opacity .3s; line-height: 1.45; }
-  #hud-hint { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); font-size: 13px; color: rgba(255,255,255,.85); background: rgba(0,0,0,.45); padding: 6px 14px; border-radius: 14px; white-space: nowrap; }
-  #crosshair { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; }
-  #crosshair::before, #crosshair::after { content: ''; position: absolute; background: #fff; box-shadow: 0 0 4px #000; }
-  #crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }
-  #crosshair::after { left: 0; top: 10px; width: 22px; height: 2px; }
+  /* --- Objective bar --- */
+  #hud-objective { position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    z-index: 10; max-width: 46%; background: rgba(10,20,30,.72); border: 1px solid rgba(255,210,62,.7);
+    border-radius: 8px; padding: 8px 14px; font-size: 14px; line-height: 1.35; text-align: center; }
+  #hud-message { position: fixed; top: 76px; left: 50%; transform: translateX(-50%);
+    z-index: 10; background: rgba(10,20,30,.8); border-radius: 8px; padding: 8px 16px;
+    font-size: 15px; font-weight: 600; text-align: center; max-width: 60%; }
+  #hud-prompt { position: fixed; bottom: 92px; left: 50%; transform: translateX(-50%);
+    z-index: 10; background: rgba(0,0,0,.65); border-radius: 20px; padding: 7px 18px;
+    font-size: 15px; font-weight: 700; }
 
-  .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10; background: rgba(5,10,20,.55); backdrop-filter: blur(2px); }
-  .screen.hidden { display: none; }
-  .panel { background: linear-gradient(160deg, rgba(16,32,56,.96), rgba(8,16,30,.96)); border: 1px solid rgba(255,210,58,.55); border-radius: 18px; padding: 34px 42px; max-width: 620px; text-align: center; color: #fff; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
-  .panel h1 { font-size: 52px; letter-spacing: 2px; color: #ffd23a; text-shadow: 0 4px 0 #b3541e, 0 8px 24px rgba(0,0,0,.6); }
-  .panel h2 { font-size: 15px; letter-spacing: 5px; color: #7dd8ff; margin: 6px 0 18px; text-transform: uppercase; }
-  .panel p { font-size: 15px; line-height: 1.65; color: #dfe8f0; margin-bottom: 12px; }
-  .panel .controls { font-size: 13px; line-height: 1.9; color: #aebfce; background: rgba(255,255,255,.06); border-radius: 10px; padding: 12px 16px; margin: 14px 0 20px; text-align: left; }
-  .panel .controls b { color: #ffd23a; }
-  .big-button { pointer-events: auto; cursor: pointer; font-size: 19px; font-weight: 800; letter-spacing: 1px; color: #1a1200; background: linear-gradient(180deg, #ffe066, #f2c230); border: none; border-radius: 12px; padding: 14px 42px; box-shadow: 0 6px 0 #b3541e, 0 10px 24px rgba(0,0,0,.5); }
-  .big-button:hover { filter: brightness(1.08); }
-  .big-button:active { transform: translateY(3px); box-shadow: 0 3px 0 #b3541e; }
-  #gameover-title { font-size: 56px; color: #ff3b30; }
-  .small-note { font-size: 12px; color: #8fa3b5; margin-top: 14px; }
+  /* --- Minimap --- */
+  #minimap-wrap { position: fixed; left: 16px; bottom: 16px; z-index: 10;
+    border: 2px solid rgba(255,255,255,.75); border-radius: 10px; overflow: hidden;
+    box-shadow: 0 4px 14px rgba(0,0,0,.45); }
+  #minimap { display: block; width: 190px; height: 190px; }
+
+  /* --- Controls hint --- */
+  #hud-controls { position: fixed; right: 16px; bottom: 16px; z-index: 10; text-align: right;
+    font-size: 12.5px; line-height: 1.6; color: rgba(255,255,255,.92);
+    text-shadow: 0 1px 3px rgba(0,0,0,.7); }
+
+  /* --- Start / busted overlays --- */
+  .overlay { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center;
+    justify-content: center; background: linear-gradient(160deg, rgba(255,170,60,.88), rgba(30,127,168,.92)); }
+  .panel { background: rgba(10,22,34,.82); border: 2px solid #ffd23e; border-radius: 16px;
+    padding: 34px 44px; max-width: 620px; text-align: center; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
+  .panel h1 { font-size: 52px; letter-spacing: 2px; color: #ffd23e; margin-bottom: 4px; }
+  .panel h2 { font-size: 19px; font-weight: 600; color: #9fe8ff; margin-bottom: 16px; }
+  .panel p { font-size: 15px; line-height: 1.55; margin-bottom: 12px; color: #eef6ff; }
+  .panel .keys { font-size: 13.5px; color: #cfe3ef; }
+  .panel button { margin-top: 16px; font-size: 20px; font-weight: 800; color: #12202c;
+    background: #ffd23e; border: none; border-radius: 10px; padding: 13px 34px; cursor: pointer; }
+  .panel button:hover { background: #ffe066; }
+  #start-stats { font-size: 14px; color: #7dff9b; font-weight: 700; }
+  .small-btn { font-size: 14px !important; padding: 8px 18px !important; margin-left: 8px;
+    background: #9fe8ff !important; }
+  #help-panel { position: fixed; z-index: 15; right: 16px; top: 110px; width: 280px;
+    background: rgba(10,22,34,.88); border: 1px solid #ffd23e; border-radius: 10px;
+    padding: 14px 16px; font-size: 13.5px; line-height: 1.7; }
+  #help-panel h3 { color: #ffd23e; margin-bottom: 6px; font-size: 15px; }
 </style>
-<script type="importmap">
-{ "imports": { "three": "./vendor/three.module.min.js" } }
-</script>
 </head>
 <body>
 <canvas id="game-canvas"></canvas>
 
-<div id="hud">
-  <div id="hud-top-left">
-    <div id="hud-cash">$0</div>
-    <div id="hud-stars">☆☆☆☆☆</div>
-    <div id="hud-health">
-      <div id="hud-health-label">HEALTH <span id="hud-health-text">100</span></div>
-      <div id="hud-health-bar"><div id="hud-health-fill"></div></div>
-    </div>
-  </div>
-  <div id="hud-top-right">
-    <canvas id="minimap"></canvas>
-    <div id="hud-speed">—</div>
-  </div>
-  <div id="hud-missions"></div>
-  <div id="hud-objective">Misi segera dimulai...</div>
-  <div id="hud-message"></div>
-  <div id="crosshair"></div>
-  <div id="hud-hint">WASD jalan · Shift lari · E curi mobil · Klik tembak · P jeda</div>
+<div id="hud-top-left">
+  <div id="hud-cash">$150</div>
+  <div id="hud-stars">☆☆☆☆☆</div>
 </div>
 
-<div id="start-screen" class="screen">
+<div id="hud-top-right">
+  <div id="hud-speed">0 km/h</div>
+  <div class="health-row">
+    <span>❤ <span id="hud-health-text">100</span></span>
+    <div id="hud-health-bar"><div id="hud-health-fill"></div></div>
+  </div>
+</div>
+
+<div id="hud-objective">Loading Sunshine City…</div>
+<div id="hud-message" class="hidden"></div>
+<div id="hud-prompt" class="hidden"></div>
+
+<div id="minimap-wrap"><canvas id="minimap" width="190" height="190"></canvas></div>
+
+<div id="hud-controls">
+  WASD move / drive &nbsp;•&nbsp; Mouse orbit<br>
+  E steal / exit car &nbsp;•&nbsp; F shoot &nbsp;•&nbsp; Shift run<br>
+  H help &nbsp;•&nbsp; M mute
+</div>
+
+<div id="help-panel" class="hidden">
+  <h3>How to play</h3>
+  <b>Marco Reyes</b> is new in Sunshine City. Lena Cruz has three jobs for him:<br>
+  1. <b>First Wheels</b> — steal a parked car (E) and bring it to the garage. $500.<br>
+  2. <b>Package Run</b> — grab the package at the pier, deliver north in 90s. $800.<br>
+  3. <b>Lose the Heat</b> — drop your wanted level to zero. $1,200.<br>
+  Stealing and shooting raise your wanted level; police chase harder as it grows.
+  If they hold you on foot, you're <b>Busted</b> and pay a $200 fine.
+  Progress saves automatically.
+</div>
+
+<div id="start-screen" class="overlay hidden">
   <div class="panel">
     <h1>SUNSHINE CITY</h1>
-    <h2>Open World Crime &middot; Marco &amp; Lena</h2>
-    <p>Marco Reyes baru bebas dan pulang ke Sunshine City — kota pantai yang panas, penuh peluang dan polisi. Bersama Lena Cruz, ia harus mencuri mobil pertamanya, mengantar paket tepat waktu, lalu menghilangkan jejak dari kejaran hukum.</p>
-    <p>Jelajahi kota dengan berjalan kaki atau mencuri mobil parkir, hindari atau lawan polisi, dan selesaikan ketiga misi cerita untuk menjadi legenda kota ini.</p>
-    <div class="controls">
-      <b>WASD</b> — jalan / mengemudi &nbsp;·&nbsp; <b>Mouse</b> — putar kamera<br>
-      <b>Shift</b> — lari &nbsp;·&nbsp; <b>Spasi</b> — rem<br>
-      <b>E</b> — curi / masuk mobil &nbsp;·&nbsp; <b>F</b> — keluar mobil<br>
-      <b>Klik kiri</b> — tembak pistol &nbsp;·&nbsp; <b>P</b> — jeda &nbsp;·&nbsp; <b>M</b> — suara
-    </div>
-    <button id="start-button" class="big-button">▶ MULAI PETUALANGAN</button>
-    <div class="small-note">Game orisinal — semua aset, nama, dan cerita dibuat sendiri. Progress tersimpan otomatis.</div>
+    <h2>Marco Reyes &amp; Lena Cruz — a sun-soaked open-world crime story</h2>
+    <p>Steal cars, outrun the cops, and run three jobs for Lena across a procedural
+       beach city — palms, piers, traffic and all. Your progress saves automatically.</p>
+    <p id="start-stats"></p>
+    <p class="keys">WASD move / drive &nbsp;•&nbsp; Mouse orbit camera &nbsp;•&nbsp; E steal car &nbsp;•&nbsp; F shoot &nbsp;•&nbsp; Shift run</p>
+    <button id="start-button">▶ &nbsp;START GAME</button>
+    <button id="help-button" class="small-btn">How to play</button>
+    <button id="mute-button" class="small-btn">🔊 Sound: On</button>
   </div>
 </div>
 
-<div id="pause-screen" class="screen hidden">
+<div id="busted-screen" class="overlay hidden">
   <div class="panel">
-    <h1 style="font-size:40px;">JEDA</h1>
-    <p>Sunshine City menunggumu. Istirahat sejenak, Marco.</p>
-    <button id="resume-button" class="big-button">▶ LANJUTKAN</button><br><br>
-    <button id="restart-button" class="big-button" style="background:linear-gradient(180deg,#ffb3ab,#e05a4e);color:#fff;box-shadow:0 6px 0 #7a1f16;">↻ MULAI DARI AWAL</button>
+    <h1>BUSTED!</h1>
+    <p id="busted-fine"></p>
+    <button id="resume-button">↻ &nbsp;BACK ON THE STREETS</button>
   </div>
 </div>
 
-<div id="gameover-screen" class="screen hidden">
-  <div class="panel">
-    <h1 id="gameover-title">BUSTED!</h1>
-    <p id="gameover-text">Polisi menangkap Marco.</p>
-    <button id="retry-button" class="big-button">↻ COBA LAGI</button><br><br>
-    <button id="menu-button" class="big-button" style="background:linear-gradient(180deg,#cfe3ff,#7db4e8);color:#10233a;box-shadow:0 6px 0 #2a4a66;">MENU UTAMA</button>
-  </div>
-</div>
-
+<script src="./vendor/three.min.js"></script>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

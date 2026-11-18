@@ -1,114 +1,87 @@
-// Sunshine City — pistol combat. Click to fire a hitscan shot from the
-// camera: tracer line, muzzle flash, hit sparks, and damage to pedestrians
-// and police cruisers. Shooting raises the wanted level.
+// Sunshine City — combat: Marco's pistol. F fires a shot at the
+// nearest traffic or police car in front of him; hits damage the car
+// and raise the wanted level. Ammo is unlimited but the fire rate
+// is capped, and every shot is loud.
 
-import * as THREE from 'three';
-import { CONFIG } from './config.js';
+import { distance2D } from './util.js';
 
-export class CombatSystem {
-  constructor(scene, camera) {
+export class Combat {
+  constructor(scene, game) {
     this.scene = scene;
-    this.camera = camera;
+    this.game = game;
     this.cooldown = 0;
+    this.ammo = Infinity;
     this.tracer = null;
-    this.tracerTimer = 0;
-    this.flash = new THREE.PointLight(0xffc860, 0, 14);
-    this.scene.add(this.flash);
-    this.lastShotAt = 0;
+    this.tracerLife = 0;
+    this._makeTracer();
   }
 
-  tryShoot(player, police, peds, onShotFired) {
-    if (this.cooldown > 0) return false;
-    this.cooldown = CONFIG.pistolCooldown;
-    this.lastShotAt = performance.now();
-
-    const origin = new THREE.Vector3();
-    this.camera.getWorldPosition(origin);
-    const direction = new THREE.Vector3();
-    this.camera.getWorldDirection(direction);
-
-    // Find the closest hit among peds and police cruisers along the ray.
-    let bestDist = CONFIG.pistolRange;
-    let hitPoint = origin.clone().add(direction.clone().multiplyScalar(CONFIG.pistolRange));
-    let hitKind = null;
-    let hitTarget = null;
-
-    const ray = new THREE.Raycaster(origin, direction, 0.1, CONFIG.pistolRange);
-    for (const ped of peds.peds) {
-      if (!ped.alive) continue;
-      const target = new THREE.Vector3(ped.x, 1.2, ped.z);
-      const toTarget = target.clone().sub(origin);
-      const along = toTarget.dot(direction);
-      if (along < 0 || along > bestDist) continue;
-      const closest = origin.clone().add(direction.clone().multiplyScalar(along));
-      if (closest.distanceTo(target) < 1.4) {
-        bestDist = along;
-        hitPoint = closest.clone();
-        hitKind = 'ped';
-        hitTarget = ped;
-      }
-    }
-    for (const cruiser of police.cruisers) {
-      if (cruiser.disabled) continue;
-      const target = new THREE.Vector3(cruiser.x, 1.0, cruiser.z);
-      const toTarget = target.clone().sub(origin);
-      const along = toTarget.dot(direction);
-      if (along < 0 || along > bestDist) continue;
-      const closest = origin.clone().add(direction.clone().multiplyScalar(along));
-      if (closest.distanceTo(target) < 2.6) {
-        bestDist = along;
-        hitPoint = closest.clone();
-        hitKind = 'police';
-        hitTarget = cruiser;
-      }
-    }
-    void ray;
-
-    // Tracer + muzzle flash.
-    if (this.tracer) this.scene.remove(this.tracer);
-    const tracerGeo = new THREE.BufferGeometry().setFromPoints([origin, hitPoint]);
-    this.tracer = new THREE.Line(
-      tracerGeo,
-      new THREE.LineBasicMaterial({ color: 0xffe9a0, transparent: true, opacity: 0.9 }),
-    );
+  _makeTracer() {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3));
+    this.tracer = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffe066 }));
+    this.tracer.visible = false;
     this.scene.add(this.tracer);
-    this.tracerTimer = 0.07;
-    this.flash.position.copy(origin).add(direction.clone().multiplyScalar(2));
-    this.flash.intensity = 60;
-    setTimeout(() => { this.flash.intensity = 0; }, 60);
-
-    // Hit sparks.
-    const spark = new THREE.Mesh(
-      new THREE.SphereGeometry(0.22, 6, 5),
-      new THREE.MeshBasicMaterial({ color: 0xffd23a }),
-    );
-    spark.position.copy(hitPoint);
-    this.scene.add(spark);
-    setTimeout(() => this.scene.remove(spark), 120);
-
-    if (hitKind === 'ped' && hitTarget) {
-      peds.hitAt(hitTarget.x, hitTarget.z, 1.5);
-      player.addWanted(2);
-    } else if (hitKind === 'police' && hitTarget) {
-      police.damageNearest(hitTarget.x, hitTarget.z, CONFIG.pistolDamage);
-      player.addWanted(1);
-    } else {
-      // Wild shot still draws attention if police are near.
-      player.addWanted(0);
-    }
-
-    if (onShotFired) onShotFired(hitKind, hitPoint);
-    return true;
   }
 
   update(dt) {
     this.cooldown = Math.max(0, this.cooldown - dt);
-    if (this.tracerTimer > 0) {
-      this.tracerTimer -= dt;
-      if (this.tracerTimer <= 0 && this.tracer) {
-        this.scene.remove(this.tracer);
-        this.tracer = null;
-      }
+    if (this.tracerLife > 0) {
+      this.tracerLife -= dt;
+      if (this.tracerLife <= 0) this.tracer.visible = false;
     }
+  }
+
+  // Fire from Marco's position along his facing. Returns true on a hit.
+  shoot() {
+    if (this.cooldown > 0) return false;
+    const p = this.game.player;
+    if (p.inCar) return false; // no drive-by shooting in this build
+    this.cooldown = 0.35;
+    this.game.sounds.gunshot();
+    p.gun.visible = true;
+    setTimeout(() => { p.gun.visible = false; }, 120);
+
+    const ox = p.pos.x;
+    const oz = p.pos.z;
+    const dx = Math.sin(p.heading);
+    const dz = Math.cos(p.heading);
+    const range = 45;
+
+    let best = null;
+    let bestAlong = range;
+    for (const car of this.game.allCars()) {
+      const cx = car.pos.x - ox;
+      const cz = car.pos.z - oz;
+      const along = cx * dx + cz * dz;
+      if (along < 2 || along > range) continue;
+      const side = Math.abs(cx * dz - cz * dx);
+      if (side > 2.4) continue;
+      if (along < bestAlong) { bestAlong = along; best = car; }
+    }
+
+    const endX = ox + dx * (best ? bestAlong : range);
+    const endZ = oz + dz * (best ? bestAlong : range);
+    const positions = this.tracer.geometry.attributes.position;
+    positions.setXYZ(0, ox, 1.4, oz);
+    positions.setXYZ(1, endX, 1.4, endZ);
+    positions.needsUpdate = true;
+    this.tracer.visible = true;
+    this.tracerLife = 0.08;
+
+    if (best) {
+      this.game.setWanted(this.game.wanted + 1);
+      this.game.hud.flashMessage('SHOT FIRED — wanted level up!', 0.3);
+      if (best.isPolice) {
+        // A hit police car backs off for a few seconds.
+        best.speed = -8;
+      } else if (best.driver === 'ai') {
+        // A hit traffic car swerves away: give it a new heading.
+        best.heading += 0.8;
+        best.speed = Math.max(best.speed, 14);
+      }
+      return true;
+    }
+    return false;
   }
 }

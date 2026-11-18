@@ -1,127 +1,100 @@
-// Sunshine City — the 2D minimap: a top-down canvas drawing the street
-// grid, the beach and sea, the player arrow, traffic, police, and the
-// active mission beacon.
+// Sunshine City — the 2D minimap: roads, beach, player arrow, cars,
+// police (red/blue) and the golden mission marker, drawn on a small
+// canvas in the corner of the screen.
 
-import { CONFIG } from './config.js';
+import { WORLD } from './config.js';
 
 export class Minimap {
-  constructor(canvas) {
+  constructor(canvas, city) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
-    this.size = CONFIG.minimapSize;
-    canvas.width = this.size;
-    canvas.height = this.size;
+    this.city = city;
+    this.size = canvas.width;
   }
 
-  worldToMap(x, z) {
-    const range = CONFIG.minimapRange;
-    const px = ((x + range) / (range * 2)) * this.size;
-    const py = ((z + range) / (range * 2)) * this.size;
-    return { x: px, y: py };
+  _toMap(x, z) {
+    const half = WORLD.halfSize + 40;
+    const s = this.size / (half * 2);
+    return { x: (x + half) * s, y: (z + half) * s };
   }
 
-  draw(city, player, traffic, police, peds, missions) {
+  draw(game) {
     const ctx = this.ctx;
-    const s = this.size;
-    ctx.clearRect(0, 0, s, s);
+    const S = this.size;
+    ctx.clearRect(0, 0, S, S);
+    // Backdrop.
+    ctx.fillStyle = 'rgba(20, 30, 40, 0.85)';
+    ctx.fillRect(0, 0, S, S);
+    ctx.fillStyle = '#5d8a4a';
+    ctx.fillRect(0, 0, S, S);
 
-    // Background: land, then sea at the bottom.
-    ctx.fillStyle = '#6a9e52';
-    ctx.fillRect(0, 0, s, s);
-    const seaTop = this.worldToMap(0, CONFIG.beachStart).y;
-    ctx.fillStyle = '#2a9db8';
-    ctx.fillRect(0, seaTop, s, s - seaTop);
-    const sandTop = this.worldToMap(0, CONFIG.beachStart - 8).y;
-    ctx.fillStyle = '#f0d9a0';
-    ctx.fillRect(0, sandTop, s, seaTop - sandTop);
+    // Sea + sand at the south edge.
+    const beach = this._toMap(0, WORLD.beachZ);
+    ctx.fillStyle = '#e8d29a';
+    ctx.fillRect(0, beach.y, S, S - beach.y);
+    const sea = this._toMap(0, WORLD.seaZ);
+    ctx.fillStyle = '#1e7fa8';
+    ctx.fillRect(0, sea.y, S, S - sea.y);
 
-    // Streets.
-    ctx.strokeStyle = '#3a3d42';
-    ctx.lineWidth = 5;
-    for (const c of city.roads) {
-      const vx = this.worldToMap(c, 0).x;
-      ctx.beginPath();
-      ctx.moveTo(vx, 0);
-      ctx.lineTo(vx, s);
-      ctx.stroke();
-      const hz = this.worldToMap(0, c).y;
-      ctx.beginPath();
-      ctx.moveTo(0, hz);
-      ctx.lineTo(s, hz);
-      ctx.stroke();
+    // Roads.
+    ctx.strokeStyle = '#3a3f46';
+    ctx.lineWidth = 4;
+    for (const c of this.city.roadsX) {
+      const a = this._toMap(c, -WORLD.halfSize);
+      const b = this._toMap(c, WORLD.halfSize);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+    for (const c of this.city.roadsZ) {
+      const a = this._toMap(-WORLD.halfSize, c);
+      const b = this._toMap(WORLD.halfSize, c);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     }
 
-    // Garage and dock.
-    const garage = this.worldToMap(city.garagePos.x, city.garagePos.z);
-    ctx.fillStyle = '#2f6fd4';
-    ctx.fillRect(garage.x - 5, garage.y - 5, 10, 10);
-    const dock = this.worldToMap(city.dockPos.x, city.dockPos.z);
-    ctx.fillStyle = '#9a7a4a';
-    ctx.fillRect(dock.x - 5, dock.y - 5, 10, 10);
-
-    // Mission beacon.
-    if (missions.beaconTarget) {
-      const b = this.worldToMap(missions.beaconTarget.x, missions.beaconTarget.z);
-      const pulse = 5 + Math.sin(performance.now() / 200) * 2;
-      ctx.fillStyle = '#f2c230';
+    // Mission marker.
+    const marker = game.missions.marker;
+    if (marker) {
+      const m = this._toMap(marker.x, marker.z);
+      ctx.fillStyle = '#ffd23e';
       ctx.beginPath();
-      ctx.arc(b.x, b.y, pulse, 0, Math.PI * 2);
+      ctx.arc(m.x, m.y, 6, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
       ctx.stroke();
     }
 
-    // Pedestrians as faint dots.
-    ctx.fillStyle = 'rgba(255,255,255,0.65)';
-    for (const ped of peds.peds) {
-      if (!ped.alive) continue;
-      const p = this.worldToMap(ped.x, ped.z);
-      ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
+    // Traffic + parked cars.
+    ctx.fillStyle = '#dfe6ee';
+    for (const car of game.allCars()) {
+      if (car.isPolice) continue;
+      const p = this._toMap(car.pos.x, car.pos.z);
+      ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
     }
 
-    // Traffic as grey dots.
-    ctx.fillStyle = '#d8d8d8';
-    for (const car of traffic.cars) {
-      const p = this.worldToMap(car.x, car.z);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Police as flashing blue/red dots.
-    const flashBlue = Math.floor(performance.now() / 300) % 2 === 0;
-    ctx.fillStyle = flashBlue ? '#2244ff' : '#ff2222';
-    for (const cruiser of police.cruisers) {
-      const p = this.worldToMap(cruiser.x, cruiser.z);
+    // Police cars flash red/blue.
+    for (const car of game.police.cars) {
+      const p = this._toMap(car.pos.x, car.pos.z);
+      ctx.fillStyle = Math.sin(game.time * 6) > 0 ? '#ff2222' : '#2244ff';
       ctx.beginPath();
       ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Player arrow, rotated to the heading.
-    const pos = player.position;
-    const p = this.worldToMap(pos.x, pos.z);
-    const heading = player.vehicle ? player.vehicle.heading : player.heading;
+    // Player arrow, rotated to face the heading.
+    const pp = this._toMap(game.player.pos.x, game.player.pos.z);
     ctx.save();
-    ctx.translate(p.x, p.y);
-    ctx.rotate(heading);
+    ctx.translate(pp.x, pp.y);
+    ctx.rotate(game.player.heading);
     ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = '#111111';
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(0, -8);
-    ctx.lineTo(5.5, 6);
-    ctx.lineTo(0, 3);
-    ctx.lineTo(-5.5, 6);
+    ctx.moveTo(0, -7);
+    ctx.lineTo(5, 6);
+    ctx.lineTo(-5, 6);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
     ctx.restore();
-
-    // North marker.
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 11px sans-serif';
-    ctx.fillText('N', 6, 14);
   }
 }

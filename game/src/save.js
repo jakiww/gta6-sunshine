@@ -1,42 +1,38 @@
 // Sunshine City — save / load through localStorage.
-// Only progress numbers are stored: cash, missions done, best wanted escape.
+// Only numbers and small flags: cash, missions done, wanted level,
+// health and Marco's position. Nothing sensitive, nothing personal.
 
-import { CONFIG } from './config.js';
+const SAVE_KEY = 'sunshine-city-save-v1';
 
-export function loadSave() {
-  const fallback = { cash: 0, missionsCompleted: 0, carsStolen: 0, bestScore: 0 };
-  try {
-    const raw = window.localStorage.getItem(CONFIG.saveKey);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw);
-    return {
-      cash: typeof parsed.cash === 'number' ? parsed.cash : 0,
-      missionsCompleted: typeof parsed.missionsCompleted === 'number' ? parsed.missionsCompleted : 0,
-      carsStolen: typeof parsed.carsStolen === 'number' ? parsed.carsStolen : 0,
-      bestScore: typeof parsed.bestScore === 'number' ? parsed.bestScore : 0,
-    };
-  } catch (e) {
-    return fallback;
-  }
-}
-
-export function storeSave(state) {
+export function saveGame(state) {
   try {
     const data = {
       cash: Math.floor(state.cash),
-      missionsCompleted: state.missionsCompleted,
-      carsStolen: state.carsStolen,
-      bestScore: state.bestScore,
+      missionsDone: state.missionsDone,
+      wanted: state.wanted,
+      health: Math.round(state.health),
+      pos: { x: Math.round(state.pos.x), z: Math.round(state.pos.z) },
+      savedAt: Date.now(),
     };
-    window.localStorage.setItem(CONFIG.saveKey, JSON.stringify(data));
+    window.localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     return true;
   } catch (e) {
     return false;
   }
 }
 
-export function clearSave() {
+export function loadGame() {
   try {
-    window.localStorage.removeItem(CONFIG.saveKey);
-  } catch (e) { /* storage unavailable */ }
+    const raw = window.localStorage.getItem(SAVE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (typeof data.cash !== 'number') return null;
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
+export function clearSave() {
+  try { window.localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ }
 }

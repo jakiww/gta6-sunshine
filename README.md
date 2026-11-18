@@ -1,74 +1,75 @@
 # Sunshine City
 
-[![Play on make.fun](https://make.fun/badge/gta6-01/play.svg)](https://make.fun/c/gta6-01)
-[![Compete on make.fun](https://make.fun/badge/gta6-01/compete.svg)](https://make.fun/c/gta6-01)
-[![Built with make.fun](https://make.fun/badge/gta6-01/built.svg)](https://make.fun/?ref=ybsp0vay)
+![Bounty](https://make.fun/badge/gta6-01.svg)
+![Rank](https://make.fun/badge/gta6-01/jakiww/gta6-sunshine/rank.svg)
+![Reward](https://make.fun/badge/gta6-01/jakiww/gta6-sunshine/reward.svg)
 
-An original open-world crime game in the spirit of GTA 6, built for the
-[make.fun](https://make.fun/?ref=ybsp0vay) GTA 6 bounty (competition `gta6-01`).
+**Sunshine City** is an open-world crime game built for the
+[Make GTA 6 bounty on make.fun](https://make.fun/bounty/gta6-01) — a sun-soaked
+procedural beach city where you play Marco Reyes, a small-time hustler trying
+to make a name for himself with the help of Lena Cruz.
 
-## The game
+Play it here after cloning: serve the `game/` folder with any static server
+(`node serve.ts`, then open http://localhost:8080) — no build step, no network,
+everything runs offline in a desktop browser.
 
-**Sunshine City** is a sun-soaked procedural coastal city. You play **Marco
-Reyes**, fresh out of prison and back home, working with **Lena Cruz** to make
-a name for himself — one stolen car at a time.
+Referral code: `ybsp0vay`
 
-- **Explore on foot and by car** — walk the sidewalks or steal any parked car
-  (press `E`) and drive the street grid, the beach road, and the pier.
-- **Living city** — AI traffic cruising the streets, pedestrians strolling the
-  sidewalks, palm trees, a beach and the open sea to the south.
-- **Wanted system (0–5 stars)** — steal cars, hit pedestrians, or shoot, and
-  the police respond. Cruisers chase, ram, and flash their light bars. Get
-  caught on foot and you're **Busted**; get wrecked and you're **Wasted**.
-- **Three story missions** — *First Wheels* (steal a car, $500), *Package Run*
-  (a 90-second delivery to the pier, $800), and *Lose the Heat* (escape a
-  three-star wanted level, $1,200).
-- **Combat** — pistol with hitscan shooting, tracer, muzzle flash, and
-  panicking crowds.
-- **HUD + minimap** — cash, wanted stars, health, speed, mission tracker,
-  objective banner, and a live 2D minimap with traffic, police, and the
-  mission beacon.
-- **Polish** — synthesized WebAudio sound (engine, sirens, gunshots, chimes),
-  start / pause / game-over screens, and localStorage saves.
+## The story
 
-## Controls
+Marco Reyes just rolled into Sunshine City with $150 and a borrowed jacket.
+Lena Cruz, the fixer who runs the garage on the west road, has three jobs for
+him — and the city's cops are not in a forgiving mood.
+
+1. **First Wheels** — Steal any parked car and bring it to Lena's garage. **$500**
+2. **Package Run** — Pick up a package at the pier and deliver it to the north
+   garage in 90 seconds. **$800**
+3. **Lose the Heat** — The whole force is after you. Drop your wanted level to
+   zero. **$1,200**
+
+## How to play
 
 | Key | Action |
 | --- | --- |
-| WASD / arrows | Walk / drive |
-| Mouse | Orbit camera |
+| WASD / arrows | Walk (or drive, when in a car) |
+| Mouse | Orbit camera (click the game to lock the pointer) |
 | Shift | Run |
-| Space | Brake |
-| E | Steal / enter a car |
-| F | Exit car |
-| Left click | Shoot pistol |
-| P | Pause |
-| M | Mute |
+| E | Steal a parked car / exit a car |
+| F | Fire the pistol (on foot) |
+| H | Help panel |
+| M | Mute sound |
 
-## Play it
+Stealing a car, shooting, or speeding past the police raises your **wanted
+level (0–5 stars)**. The higher it goes, the more police cars chase you —
+they ram and block your car, and if they hold you on foot, you're **Busted**
+and pay a $200 fine. Lay low and the heat slowly cools off.
 
-```sh
-node serve.ts
-```
+## Features
 
-Then open <http://localhost:8080> in desktop Chrome. No build step, no network
-requests — every asset is vendored under `game/`.
+- **Procedural city** — road grid, towers, a beach with animated sea, a pier,
+  palm trees, street lamps, a plaza fountain and Lena's garage, all generated
+  in code with three.js (r160, vendored locally).
+- **Driving** — steal any of the parked cars; arcade handling with collision.
+- **Traffic** — AI cars cruise the road loops and slow down for the car ahead.
+- **Police AI** — spawn count follows your wanted level, with flashing light
+  bars, sirens, ramming and busts.
+- **Combat** — a pistol with a visible tracer and a short cooldown.
+- **HUD + minimap** — cash, wanted stars, health, speed, mission objective,
+  messages, and a live 2D minimap with player arrow, cars, police and the
+  mission marker.
+- **Sound** — every effect is synthesized live with WebAudio (engine hum,
+  siren, gunshots, cash register). No audio files.
+- **Save** — cash, missions and position auto-save to localStorage.
 
 ## Tech
 
-- Three.js r160, vendored as `game/vendor/three.module.min.js`
-- Plain ES modules, no bundler, no build step
-- Source split by system under `game/src/` — one clear job per file:
-  `config`, `random`, `city`, `vehicles`, `traffic`, `pedestrians`, `police`,
-  `player`, `missions`, `combat`, `hud`, `minimap`, `audio`, `save`, `input`,
-  `main`
-
-## Originality
-
-Everything in Sunshine City is original: the city, the characters (Marco
-Reyes, Lena Cruz), the story, the vehicles, and the art are made for this game.
-Nothing is copied from Rockstar Games' Grand Theft Auto series or any other
-commercial game.
+- Engine: **three.js r160**, vendored as `game/vendor/three.min.js`
+  (no CDN, no network requests at all).
+- Code: plain ES modules under `game/src/`, one system per file
+  (`city`, `player`, `vehicles`, `police`, `missions`, `combat`, `hud`,
+  `minimap`, `audio`, `save`, `input`, `config`, `util`).
+- Screenshots: `?shot=cover|walk|chase|mission` jumps straight into a real
+  game state for reproducible captures.
 
 ## License
 

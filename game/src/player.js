@@ -1,195 +1,192 @@
-// Sunshine City — Marco Reyes on foot and behind the wheel.
-// Walking with camera-relative WASD, stealing parked cars with E,
-// exiting with F, and taking damage from police rams.
+// Sunshine City — Marco Reyes on foot: movement, third-person orbit
+// camera, and getting in and out of cars.
 
-import * as THREE from 'three';
-import { CONFIG } from './config.js';
-import { clamp, angleLerp } from './random.js';
-import { collideCircle } from './city.js';
-import { driveVehicle, nearestParkedCar } from './vehicles.js';
-
-function buildMarcoMesh() {
-  const group = new THREE.Group();
-  const skinMat = new THREE.MeshLambertMaterial({ color: 0xc98a5a });
-  const shirtMat = new THREE.MeshLambertMaterial({ color: 0x2fd4d4 });
-  const jacketMat = new THREE.MeshLambertMaterial({ color: 0x1c2f42 });
-  const pantsMat = new THREE.MeshLambertMaterial({ color: 0x2a2a3a });
-
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 8), skinMat);
-  head.position.y = 1.66;
-  group.add(head);
-  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.29, 0.12, 10), jacketMat);
-  cap.position.y = 1.86;
-  group.add(cap);
-  const brim = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.05, 0.3), jacketMat);
-  brim.position.set(0, 1.82, 0.3);
-  group.add(brim);
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.72, 0.36), shirtMat);
-  torso.position.y = 1.16;
-  group.add(torso);
-  const jacket = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.5, 0.42), jacketMat);
-  jacket.position.y = 1.3;
-  group.add(jacket);
-
-  const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.8, 0.25), pantsMat);
-  leftLeg.position.set(-0.17, 0.4, 0);
-  group.add(leftLeg);
-  const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.8, 0.25), pantsMat);
-  rightLeg.position.set(0.17, 0.4, 0);
-  group.add(rightLeg);
-  const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.64, 0.18), shirtMat);
-  leftArm.position.set(-0.44, 1.18, 0);
-  group.add(leftArm);
-  const rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.64, 0.18), shirtMat);
-  rightArm.position.set(0.44, 1.18, 0);
-  group.add(rightArm);
-
-  group.userData.leftLeg = leftLeg;
-  group.userData.rightLeg = rightLeg;
-  group.userData.leftArm = leftArm;
-  group.userData.rightArm = rightArm;
-  return group;
-}
+import { PLAYER, WORLD } from './config.js';
+import { clamp, distance2D } from './util.js';
 
 export class Player {
-  constructor(scene, spawn) {
-    this.mesh = buildMarcoMesh();
-    this.x = spawn.x;
-    this.z = spawn.z;
-    this.heading = Math.PI;
+  constructor(scene, city) {
+    this.scene = scene;
+    this.city = city;
+    this.pos = { x: -110, y: 0, z: -20 };
+    this.heading = 0; // facing angle, radians
+    this.health = 100;
+    this.inCar = null; // the Car object Marco is driving, or null
     this.speed = 0;
-    this.health = CONFIG.playerHealth;
-    this.cash = 0;
-    this.wanted = 0;
-    this.vehicle = null;
-    this.carsStolen = 0;
-    this.walkPhase = 0;
-    this.ramCooldown = 0;
-    this.wantedCalmTimer = 0;
-    this.wantedDecayTimer = 0;
-    this.mesh.position.set(this.x, 0, this.z);
+    this.bustedTimer = 0;
+
+    // Orbit camera state.
+    this.camYaw = Math.PI * 0.75;
+    this.camPitch = 0.42;
+    this.camDistance = 11;
+
+    this.mesh = this._buildMesh();
     scene.add(this.mesh);
   }
 
-  get speedKmh() {
-    const speed = this.vehicle ? Math.abs(this.vehicle.speed) : Math.abs(this.speed);
-    return Math.round(speed * 3.6);
+  _buildMesh() {
+    const group = new THREE.Group();
+    const skin = new THREE.MeshLambertMaterial({ color: 0xc98d64 });
+    const shirt = new THREE.MeshLambertMaterial({ color: 0x2fa36b });
+    const pants = new THREE.MeshLambertMaterial({ color: 0x2b3a55 });
+    const hair = new THREE.MeshLambertMaterial({ color: 0x201510 });
+
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.0, 0.5), shirt);
+    torso.position.y = 1.25;
+    torso.castShadow = true;
+    group.add(torso);
+
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), skin);
+    head.position.y = 2.05;
+    head.castShadow = true;
+    group.add(head);
+
+    const hairTop = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.2, 0.6), hair);
+    hairTop.position.y = 2.36;
+    group.add(hairTop);
+
+    this.leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.85, 0.36), pants);
+    this.leftLeg.position.set(-0.22, 0.45, 0);
+    this.leftLeg.castShadow = true;
+    group.add(this.leftLeg);
+    this.rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.85, 0.36), pants);
+    this.rightLeg.position.set(0.22, 0.45, 0);
+    this.rightLeg.castShadow = true;
+    group.add(this.rightLeg);
+
+    this.leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.85, 0.3), shirt);
+    this.leftArm.position.set(-0.58, 1.25, 0);
+    this.leftArm.castShadow = true;
+    group.add(this.leftArm);
+    this.rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.85, 0.3), shirt);
+    this.rightArm.position.set(0.58, 1.25, 0);
+    this.rightArm.castShadow = true;
+    group.add(this.rightArm);
+
+    // The pistol is hidden until Marco draws it.
+    this.gun = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 0.55), new THREE.MeshLambertMaterial({ color: 0x222222 }));
+    this.gun.position.set(0.58, 1.0, 0.3);
+    this.gun.visible = false;
+    group.add(this.gun);
+
+    group.position.set(this.pos.x, 0, this.pos.z);
+    return group;
   }
 
-  get position() {
-    if (this.vehicle) return { x: this.vehicle.x, z: this.vehicle.z };
-    return { x: this.x, z: this.z };
-  }
-
-  addWanted(amount) {
-    this.wanted = clamp(this.wanted + amount, 0, 5);
-    this.wantedCalmTimer = 0;
-    this.wantedDecayTimer = 0;
-  }
-
-  setWanted(value) {
-    this.wanted = clamp(value, 0, 5);
-    this.wantedCalmTimer = 0;
-    this.wantedDecayTimer = 0;
-  }
-
-  updateWanted(dt) {
-    if (this.wanted === 0) return;
-    this.wantedCalmTimer += dt;
-    if (this.wantedCalmTimer > CONFIG.wantedDecayCalmSeconds) {
-      this.wantedDecayTimer += dt;
-      if (this.wantedDecayTimer > CONFIG.wantedDecayInterval) {
-        this.wantedDecayTimer = 0;
-        this.wanted = Math.max(0, this.wanted - 1);
-      }
+  update(dt, input, game) {
+    if (this.inCar) {
+      // Hidden while driving; the car carries him.
+      this.mesh.visible = false;
+      this.pos.x = this.inCar.pos.x;
+      this.pos.z = this.inCar.pos.z;
+      this.heading = this.inCar.heading;
+      this.speed = Math.abs(this.inCar.speed);
+      return;
     }
+    this.mesh.visible = true;
+
+    // Mouse orbit.
+    const mouse = input.consumeMouse();
+    this.camYaw -= mouse.dx * 0.0035;
+    this.camPitch = clamp(this.camPitch + mouse.dy * 0.0028, 0.08, 1.1);
+
+    const mv = input.moveVector();
+    const running = input.down('ShiftLeft') || input.down('ShiftRight');
+    const targetSpeed = (mv.forward !== 0 || mv.strafe !== 0)
+      ? (running ? PLAYER.runSpeed : PLAYER.walkSpeed)
+      : 0;
+    this.speed += (targetSpeed - this.speed) * Math.min(1, dt * 8);
+
+    if (this.speed > 0.3) {
+      // Movement is relative to the camera yaw.
+      const moveAngle = this.camYaw + Math.PI;
+      const strafeAngle = moveAngle + Math.PI / 2;
+      const fx = Math.sin(moveAngle) * mv.forward + Math.sin(strafeAngle) * mv.strafe;
+      const fz = Math.cos(moveAngle) * mv.forward + Math.cos(strafeAngle) * mv.strafe;
+      const len = Math.hypot(fx, fz) || 1;
+      this.pos.x += (fx / len) * this.speed * dt;
+      this.pos.z += (fz / len) * this.speed * dt;
+      this.heading = Math.atan2(fx, fz);
+      this.city.resolveCircle(this.pos, 0.7);
+
+      // Walk-cycle swing on arms and legs.
+      const swing = Math.sin(game.time * 11) * 0.55 * (this.speed / PLAYER.runSpeed);
+      this.leftLeg.rotation.x = swing;
+      this.rightLeg.rotation.x = -swing;
+      this.leftArm.rotation.x = -swing * 0.8;
+      this.rightArm.rotation.x = swing * 0.8;
+    } else {
+      this.leftLeg.rotation.x = 0;
+      this.rightLeg.rotation.x = 0;
+      this.leftArm.rotation.x = 0;
+      this.rightArm.rotation.x = 0;
+    }
+
+    this.mesh.position.set(this.pos.x, 0, this.pos.z);
+    this.mesh.rotation.y = this.heading;
   }
 
-  takeDamage(amount) {
-    this.health = clamp(this.health - amount, 0, CONFIG.playerHealth);
-    return this.health <= 0;
-  }
-
-  heal(amount) {
-    this.health = clamp(this.health + amount, 0, CONFIG.playerHealth);
+  // Third-person camera: behind and above Marco, or behind the car.
+  updateCamera(camera, dt) {
+    const focus = this.inCar ? this.inCar.pos : this.pos;
+    const yaw = this.inCar ? this.inCar.heading + Math.PI : this.camYaw;
+    const dist = this.inCar ? 13 : this.camDistance;
+    const height = this.inCar ? 5.5 : 4.5 + this.camPitch * 4;
+    const tx = focus.x + Math.sin(yaw) * dist;
+    const tz = focus.z + Math.cos(yaw) * dist;
+    const speed = this.inCar ? 6 : 10;
+    camera.position.x += (tx - camera.position.x) * Math.min(1, dt * speed);
+    camera.position.y += (height - camera.position.y) * Math.min(1, dt * speed);
+    camera.position.z += (tz - camera.position.z) * Math.min(1, dt * speed);
+    camera.lookAt(focus.x, 1.5, focus.z);
   }
 
   enterCar(car) {
-    this.vehicle = car;
-    car.isPlayer = true;
+    this.inCar = car;
+    car.driver = this;
     this.mesh.visible = false;
-    this.carsStolen += 1;
   }
 
   exitCar() {
-    if (!this.vehicle) return;
-    const car = this.vehicle;
-    car.isPlayer = false;
-    // Step out to the driver's side.
-    const sideX = Math.cos(car.heading);
-    const sideZ = -Math.sin(car.heading);
-    this.x = car.x + sideX * 2.6;
-    this.z = car.z + sideZ * 2.6;
-    this.heading = car.heading;
-    this.vehicle = null;
+    if (!this.inCar) return;
+    const car = this.inCar;
+    car.driver = null;
+    this.inCar = null;
+    // Step out on the driver's side.
+    const side = car.heading + Math.PI / 2;
+    this.pos.x = car.pos.x + Math.sin(side) * 2.2;
+    this.pos.z = car.pos.z + Math.cos(side) * 2.2;
+    this.city.resolveCircle(this.pos, 0.7);
+    this.mesh.position.set(this.pos.x, 0, this.pos.z);
     this.mesh.visible = true;
-    this.mesh.position.set(this.x, 0, this.z);
-    this.mesh.rotation.y = this.heading;
   }
 
-  update(dt, input, colliders, parkedCars, cameraYaw, callbacks) {
-    this.ramCooldown = Math.max(0, this.ramCooldown - dt);
-
-    if (this.vehicle) {
-      const beforeSpeed = Math.abs(this.vehicle.speed);
-      driveVehicle(this.vehicle, input, dt, colliders, (impactSpeed) => {
-        if (callbacks.onCrash) callbacks.onCrash(impactSpeed);
-      });
-      if (input.consumeExit()) this.exitCar();
-      return;
+  nearestParkedCar(cars, maxDist) {
+    let best = null;
+    let bestD = maxDist;
+    for (const car of cars) {
+      if (car.isPolice || car.driver) continue;
+      const d = distance2D(this.pos.x, this.pos.z, car.pos.x, car.pos.z);
+      if (d < bestD) { bestD = d; best = car; }
     }
+    return best;
+  }
 
-    // On foot: camera-relative movement.
-    const move = input.moveVector();
-    const targetSpeed = move.x !== 0 || move.z !== 0
-      ? (input.running ? CONFIG.runSpeed : CONFIG.walkSpeed)
-      : 0;
-    this.speed += (targetSpeed - this.speed) * Math.min(1, dt * 10);
+  takeDamage(amount) {
+    this.health = Math.max(0, this.health - amount);
+  }
 
-    if (this.speed > 0.1) {
-      const worldX = move.x * Math.cos(cameraYaw) - move.z * Math.sin(cameraYaw);
-      const worldZ = move.x * Math.sin(cameraYaw) + move.z * Math.cos(cameraYaw);
-      const targetHeading = Math.atan2(worldX, worldZ);
-      this.heading = angleLerp(this.heading, targetHeading, Math.min(1, dt * 12));
-      const nextX = this.x + Math.sin(this.heading) * this.speed * dt;
-      const nextZ = this.z + Math.cos(this.heading) * this.speed * dt;
-      const resolved = collideCircle(colliders, nextX, nextZ, 0.7);
-      this.x = resolved.x;
-      this.z = resolved.z;
-    }
+  heal(amount) {
+    this.health = Math.min(100, this.health + amount);
+  }
 
-    // Walk cycle.
-    this.walkPhase += this.speed * dt * 1.6;
-    const swing = Math.sin(this.walkPhase) * 0.55 * Math.min(1, this.speed / 8);
-    this.mesh.userData.leftLeg.rotation.x = swing;
-    this.mesh.userData.rightLeg.rotation.x = -swing;
-    this.mesh.userData.leftArm.rotation.x = -swing * 0.7;
-    this.mesh.userData.rightArm.rotation.x = swing * 0.7;
-    this.mesh.position.set(this.x, 0, this.z);
-    this.mesh.rotation.y = this.heading;
-
-    // Steal the nearest parked car with E.
-    if (input.consumeAction()) {
-      const car = nearestParkedCar(parkedCars, this.x, this.z, CONFIG.stealRange);
-      if (car) {
-        const index = parkedCars.indexOf(car);
-        if (index >= 0) parkedCars.splice(index, 1);
-        this.enterCar(car);
-        this.addWanted(1);
-        if (callbacks.onSteal) callbacks.onSteal(car);
-      } else if (callbacks.onStealFail) {
-        callbacks.onStealFail();
-      }
-    }
+  reset() {
+    this.pos = { x: -110, y: 0, z: -20 };
+    this.heading = 0;
+    this.health = 100;
+    this.inCar = null;
+    this.speed = 0;
+    this.mesh.visible = true;
+    this.mesh.position.set(this.pos.x, 0, this.pos.z);
   }
 }
