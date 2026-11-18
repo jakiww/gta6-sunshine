@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sunshine City — Open-World Crime Game</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1c2c; font-family: 'Segoe UI', Arial, sans-serif; }
+  #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #hud { position: fixed; inset: 0; pointer-events: none; display: none; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
+  #cash { position: absolute; top: 14px; left: 16px; font-size: 26px; font-weight: 800; color: #7dff9a; }
+  #stars { position: absolute; top: 48px; left: 16px; font-size: 26px; letter-spacing: 2px; color: #ffd23f; }
+  #stars .off { color: rgba(255,255,255,.28); }
+  #healthWrap { position: absolute; top: 14px; right: 190px; width: 180px; }
+  #healthWrap .lbl { font-size: 12px; font-weight: 700; letter-spacing: 1px; }
+  #healthBar { height: 12px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.5); border-radius: 6px; overflow: hidden; margin-top: 3px; }
+  #healthFill { height: 100%; width: 100%; background: linear-gradient(90deg,#ff5a4e,#ff8a5c); }
+  #speed { position: absolute; bottom: 18px; right: 20px; font-size: 34px; font-weight: 800; text-align: right; }
+  #speed small { font-size: 13px; font-weight: 600; display: block; letter-spacing: 2px; }
+  #objective { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); max-width: 520px; text-align: center; background: rgba(0,0,0,.55); border: 1px solid rgba(255,210,63,.8); border-radius: 8px; padding: 8px 16px; }
+  #objective .mt { font-size: 11px; letter-spacing: 2px; color: #ffd23f; font-weight: 800; }
+  #objective .mo { font-size: 15px; font-weight: 700; }
+  #hint { position: absolute; bottom: 18px; left: 16px; font-size: 14px; background: rgba(0,0,0,.5); padding: 6px 10px; border-radius: 6px; }
+  #minimap { position: absolute; top: 14px; right: 16px; width: 160px; height: 160px; border: 2px solid rgba(255,255,255,.6); border-radius: 8px; background: #123; }
+  #crosshair { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; display: none; }
+  #crosshair::before, #crosshair::after { content: ''; position: absolute; background: #fff; box-shadow: 0 0 3px #000; }
+  #crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }
+  #crosshair::after { left: 0; top: 10px; width: 22px; height: 2px; }
+  #toast { position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%); font-size: 20px; font-weight: 800; color: #ffd23f; display: none; }
+  .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(160deg, rgba(8,30,50,.88), rgba(120,40,10,.82)); color: #fff; z-index: 10; }
+  .panel { max-width: 620px; padding: 34px 40px; text-align: center; background: rgba(0,0,0,.45); border-radius: 14px; border: 1px solid rgba(255,210,63,.6); }
+  .panel h1 { margin: 0 0 4px; font-size: 56px; letter-spacing: 4px; color: #ffd23f; }
+  .panel h2 { margin: 0 0 10px; font-size: 15px; letter-spacing: 4px; color: #7dff9a; font-weight: 700; }
+  .panel p { font-size: 15px; line-height: 1.55; color: #eef; }
+  .panel .controls { font-size: 13px; line-height: 1.8; color: #cfe; text-align: left; display: inline-block; }
+  .panel button { pointer-events: auto; margin-top: 18px; padding: 13px 42px; font-size: 19px; font-weight: 800; letter-spacing: 2px; color: #102; background: #ffd23f; border: none; border-radius: 9px; cursor: pointer; }
+  .panel button:hover { background: #ffe27a; }
+  #pause, #end { display: none; }
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+</style>
+<script type="importmap">{"imports": {"three": "./vendor/three.module.min.js"}}</script>
+</head>
+<body>
+<canvas id="c" aria-label="Sunshine City: an open-world crime game"></canvas>
+<div id="hud">
+  <div id="cash">$0</div>
+  <div id="stars"></div>
+  <div id="healthWrap"><div class="lbl">HEALTH</div><div id="healthBar"><div id="healthFill"></div></div></div>
+  <canvas id="minimap" width="160" height="160"></canvas>
+  <div id="objective"><div class="mt" id="mtitle">MISSION</div><div class="mo" id="mobj"></div></div>
+  <div id="hint"></div>
+  <div id="speed"><small>SPEED</small><span id="speedVal">0</span> mph</div>
+  <div id="crosshair"></div>
+  <div id="toast"></div>
+</div>
+<div class="overlay" id="menu">
+  <div class="panel">
+    <h1>SUNSHINE CITY</h1>
+    <h2>AN OPEN-WORLD CRIME STORY</h2>
+    <p>Marco Reyes owes $50,000 to the wrong people. One last job, one fast car,
+    and a fixer named <b>Lena Cruz</b> who knows every street in Sunshine City.
+    Steal wheels, run packages, outrun the law — and pay the debt before the city eats you.</p>
+    <div class="controls">
+      <b>W A S D</b> — move / drive &nbsp;·&nbsp; <b>Mouse drag</b> — look around<br>
+      <b>Shift</b> — run &nbsp;·&nbsp; <b>E</b> — steal / enter / exit car, pick up package<br>
+      <b>Click</b> — shoot pistol &nbsp;·&nbsp; <b>Esc / P</b> — pause &nbsp;·&nbsp; <b>M</b> — mute
+    </div>
+    <br><button id="startBtn">START ENGINE</button>
+    <p style="font-size:12px;color:#9db">Progress (cash &amp; missions) is saved in this browser.</p>
+  </div>
+</div>
+<div class="overlay" id="pause">
+  <div class="panel">
+    <h1 style="font-size:40px">PAUSED</h1>
+    <p>Sunshine City waits for no one. Except right now.</p>
+    <button id="resumeBtn">RESUME</button>
+  </div>
+</div>
+<div class="overlay" id="end">
+  <div class="panel">
+    <h1 style="font-size:40px" id="endTitle">BUSTED</h1>
+    <p id="endText"></p>
+    <button id="endBtn">BACK TO THE STREETS</button>
+  </div>
+</div>
+<p id="status" role="status" aria-live="polite"></p>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
